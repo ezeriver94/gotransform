@@ -3,11 +3,11 @@ package rabbit
 import (
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/streadway/amqp"
 )
 
+// Consumer represent a rabbit mq consumer wich subscribes to a channel and handles messages
 type Consumer struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
@@ -15,7 +15,11 @@ type Consumer struct {
 	done    chan error
 }
 
-func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (*Consumer, error) {
+// Handle is a function that keeps listening for messages in a rabbit mq excahnge and performs and action
+type Handle func(deliveries <-chan amqp.Delivery, done chan error)
+
+// NewConsumer creates a rabbitmq consumer
+func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
 	c := &Consumer{
 		conn:    nil,
 		channel: nil,
@@ -99,6 +103,7 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (
 	return c, nil
 }
 
+// Shutdown closes a consumer connection
 func (c *Consumer) Shutdown() error {
 	// will close() the deliveries channel
 	if err := c.channel.Cancel(c.tag, true); err != nil {
@@ -113,21 +118,4 @@ func (c *Consumer) Shutdown() error {
 
 	// wait for handle() to exit
 	return <-c.done
-}
-
-func handle(deliveries <-chan amqp.Delivery, done chan error) {
-	for d := range deliveries {
-		log.Printf(
-			"got %dB delivery: [%v] %q",
-			len(d.Body),
-			d.DeliveryTag,
-			d.Body,
-		)
-		log.Printf("waiting 2 seconds")
-		time.Sleep(2000 * time.Millisecond)
-		log.Printf("waiting ended")
-		d.Ack(false)
-	}
-	log.Printf("handle: deliveries channel closed")
-	done <- nil
 }
