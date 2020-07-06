@@ -14,6 +14,17 @@ type DataEndpoint struct {
 	Fields           []Field `yaml:"fields"`
 }
 
+// DataSource is a DataEndpoint used as a source of a transformation
+type DataSource struct {
+	DataEndpoint
+}
+
+// DataDestination is a DataEndpoint used as a destination of a transformation
+type DataDestination struct {
+	DataEndpoint       `yaml:",inline"`
+	TransformationName string `yaml:"transformation"`
+}
+
 // Join represents a way to join two datasources
 type Join struct {
 	To string   `yaml:"to"`
@@ -31,13 +42,31 @@ type DataTransformation struct {
 	Select map[string]SelectClause `yaml:"select"`
 }
 
+// FieldPaddingMode Indicates the mode of the padding applied to a fixed-length field
+type FieldPaddingMode string
+
+const (
+	// FieldPaddingLeft represents a left padded value when the data has fixed length
+	FieldPaddingLeft FieldPaddingMode = "left"
+
+	// FieldPaddingRight represents a right padded value when the data has fixed length
+	FieldPaddingRight FieldPaddingMode = "right"
+)
+
+// FieldPadding defines the settings of the padding of a field
+type FieldPadding struct {
+	Mode FieldPaddingMode `yaml:"mode"`
+	Char string           `yaml:"char"`
+}
+
 // Field represents the attributes of a field of the Metadata
 type Field struct {
-	Name         string `yaml:"name"`
-	ExpectedType string `yaml:"type"`
-	FixedLength  int    `yaml:"fixedlength"`
-	MaxLength    int    `yaml:"maxlength"`
-	EndCharacter string `yaml:"endchar"`
+	Name         string       `yaml:"name"`
+	ExpectedType string       `yaml:"type"`
+	FixedLength  int          `yaml:"fixedlength"`
+	MaxLength    int          `yaml:"maxlength"`
+	EndCharacter string       `yaml:"endchar"`
+	Padding      FieldPadding `yaml:"padding"`
 }
 
 // Extract contains primary datasources (which are fully read and cannot be related to each others) and aditional datasources (used on join clauses on transformations)
@@ -51,7 +80,7 @@ type Metadata struct {
 	Version   string                        `yaml:"version"`
 	Extract   Extract                       `yaml:"extract"`
 	Transform map[string]DataTransformation `yaml:"transform"`
-	Load      map[string]DataEndpoint       `yaml:"load"`
+	Load      map[string]DataDestination    `yaml:"load"`
 }
 
 // ParseMetadata converts a string to a Metadata instance

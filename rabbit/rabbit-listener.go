@@ -15,48 +15,19 @@ type Consumer struct {
 	done    chan error
 }
 
-// Connection contains necesary data to connect to rabbit
-type Connection struct {
-	amqpURI string
-}
-
-// NewConnection builds a new connection based on the components needed to generate de URI
-func NewConnection(host, user, pass string, port int, vhost string) (*Connection, error) {
-	c := &Connection{
-		amqpURI: fmt.Sprintf("amqp://%v:%v@%v:%v/%v", user, pass, host, port, vhost),
-	}
-	return c, nil
-}
-
 // Handle is a function that keeps listening for messages in a rabbit mq excahnge and performs and action
 type Handle func(deliveries <-chan amqp.Delivery, done chan error)
 
 // NewConsumer creates a rabbitmq consumer
-func NewConsumer(conn *Connection, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
+func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
 	c := &Consumer{
-		conn:    nil,
-		channel: nil,
+		conn:    connection,
+		channel: channel,
 		tag:     ctag,
 		done:    make(chan error),
 	}
 
 	var err error
-
-	log.Printf("dialing %q", conn.amqpURI)
-	c.conn, err = amqp.Dial(conn.amqpURI)
-	if err != nil {
-		return nil, fmt.Errorf("Dial: %s", err)
-	}
-
-	go func() {
-		fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
-	}()
-
-	log.Printf("got Connection, getting Channel")
-	c.channel, err = c.conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("Channel: %s", err)
-	}
 
 	log.Printf("got Channel, declaring Exchange (%q)", exchange)
 	if err = c.channel.ExchangeDeclare(

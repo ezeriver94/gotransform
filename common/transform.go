@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -47,4 +48,9 @@ func (sc SelectClause) Parse() (string, string, error) {
 		return result[0], result[1], nil
 	}
 	return "", "", fmt.Errorf("cannot split select clause %v", sc)
+}
+
+// Serialize converts a transformed result to a json string
+func (t *Transformed) Serialize() ([]byte, error) {
+	return json.Marshal(t)
 }
