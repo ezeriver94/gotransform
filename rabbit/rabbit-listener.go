@@ -19,31 +19,15 @@ type Consumer struct {
 type Handle func(deliveries <-chan amqp.Delivery, done chan error)
 
 // NewConsumer creates a rabbitmq consumer
-func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
+func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
 	c := &Consumer{
-		conn:    nil,
-		channel: nil,
+		conn:    connection,
+		channel: channel,
 		tag:     ctag,
 		done:    make(chan error),
 	}
 
 	var err error
-
-	log.Printf("dialing %q", amqpURI)
-	c.conn, err = amqp.Dial(amqpURI)
-	if err != nil {
-		return nil, fmt.Errorf("Dial: %s", err)
-	}
-
-	go func() {
-		fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
-	}()
-
-	log.Printf("got Connection, getting Channel")
-	c.channel, err = c.conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("Channel: %s", err)
-	}
 
 	log.Printf("got Channel, declaring Exchange (%q)", exchange)
 	if err = c.channel.ExchangeDeclare(
