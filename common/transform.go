@@ -50,6 +50,13 @@ func (sc SelectClause) Parse() (string, string, error) {
 	return "", "", fmt.Errorf("cannot split select clause %v", sc)
 }
 
+// DeserializeTransformed deserializes a message to a Transformed instance
+func DeserializeTransformed(data []byte) (Transformed, error) {
+	var result Transformed
+	err := json.Unmarshal(data, &result)
+	return result, err
+}
+
 // Serialize converts a transformed result to a json string
 func (t *Transformed) Serialize() ([]byte, error) {
 	return json.Marshal(t)

@@ -11,6 +11,7 @@ import (
 type Consumer struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
+	queue   string
 	tag     string
 	done    chan error
 }
@@ -19,11 +20,12 @@ type Consumer struct {
 type Handle func(deliveries <-chan amqp.Delivery, done chan error)
 
 // NewConsumer creates a rabbitmq consumer
-func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
+func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string) (*Consumer, error) {
 	c := &Consumer{
 		conn:    connection,
 		channel: channel,
 		tag:     ctag,
+		queue:   queueName,
 		done:    make(chan error),
 	}
 
@@ -68,23 +70,27 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Queue Bind: %s", err)
 	}
 
+	return c, nil
+}
+
+// Consume starts listening for messages in a consumer by the execution of the handle function
+func (c *Consumer) Consume(handle Handle) error {
 	log.Printf("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
 	deliveries, err := c.channel.Consume(
-		queue.Name, // name
-		c.tag,      // consumerTag,
-		false,      // noAck
-		false,      // exclusive
-		false,      // noLocal
-		false,      // noWait
-		nil,        // arguments
+		c.queue, // name
+		c.tag,   // consumerTag,
+		false,   // noAck
+		false,   // exclusive
+		false,   // noLocal
+		false,   // noWait
+		nil,     // arguments
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Queue Consume: %s", err)
+		return fmt.Errorf("Queue Consume: %s", err)
 	}
-
 	go handle(deliveries, c.done)
 
-	return c, nil
+	return nil
 }
 
 // Shutdown closes a consumer connection
