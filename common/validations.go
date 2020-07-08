@@ -7,25 +7,10 @@ import (
 	"strconv"
 )
 
-// ValidateInt checks if one value can be converted to int
-func (f *Field) ValidateInt(data interface{}) (int, error) {
-	switch data.(type) {
-	case string:
-		result, err := strconv.Atoi(fmt.Sprintf("%v", data))
-		if err != nil {
-			return 0, err
-		}
-		return result, nil
-	case int:
-		return data.(int), nil
-	default:
-		return 0, fmt.Errorf("cannot convert from type %T to int", data)
-	}
-}
-
 // ValidateString checks if one value can be converted to string
 func (f *Field) ValidateString(data interface{}) (string, error) {
 	return data.(string), nil
+
 }
 
 // ValidateBool checks if one value can be converted to bool
@@ -76,6 +61,22 @@ func (f *Field) Validate(data interface{}) (interface{}, error) {
 		return f.ValidateBool(data)
 	default:
 		return nil, fmt.Errorf("unknown type %v in field %v", f.ExpectedType, f.Name)
+	}
+}
+
+// ValidateInt checks if one value can be converted to int
+func (f *Field) ValidateInt(data interface{}) (int, error) {
+	switch data.(type) {
+	case string:
+		result, err := strconv.Atoi(fmt.Sprintf("%v", data))
+		if err != nil {
+			return 0, err
+		}
+		return result, nil
+	case int:
+		return data.(int), nil
+	default:
+		return 0, fmt.Errorf("cannot convert from type %T to int", data)
 	}
 }
 

@@ -2,16 +2,20 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
 
+// Fields represents the set of fields of a datasource
+type Fields []Field
+
 // DataEndpoint contains information of a single entity which acts both as a source and as a data destination
 type DataEndpoint struct {
-	Driver           string  `yaml:"driver"`
-	ConnectionString string  `yaml:"connectionstring"`
-	ObjectIdentifier string  `yaml:"objectid"`
-	Fields           []Field `yaml:"fields"`
+	Driver           string `yaml:"driver"`
+	ConnectionString string `yaml:"connectionstring"`
+	ObjectIdentifier string `yaml:"objectid"`
+	Fields           Fields `yaml:"fields"`
 }
 
 // DataSource is a DataEndpoint used as a source of a transformation
@@ -25,14 +29,17 @@ type DataDestination struct {
 	TransformationName string `yaml:"transformation"`
 }
 
-// Join represents a way to join two datasources
-type Join struct {
-	To string   `yaml:"to"`
-	On []string `yaml:"on"`
-}
+// OnClause represents a single on clause comparing two fields between datasources
+type OnClause string
 
 // SelectClause contains the way to obtain a value from a datasource. format: datasource.fieldname
 type SelectClause string
+
+// Join represents a way to join two datasources
+type Join struct {
+	To string     `yaml:"to"`
+	On []OnClause `yaml:"on"`
+}
 
 // DataTransformation defines the directives to use to handle a transformation on one or multiple datasources
 type DataTransformation struct {
@@ -91,4 +98,34 @@ func ParseMetadata(data string) (*Metadata, error) {
 		return nil, fmt.Errorf("error deserializing metadata as yaml: %v", err)
 	}
 	return result, nil
+}
+
+// Parse returns the components of a select clause, splitting it by '.'
+func (sc SelectClause) Parse() (string, string, error) {
+	result := strings.Split(string(sc), ".")
+	if len(result) == 2 {
+		return strings.TrimSpace(result[0]), strings.TrimSpace(result[1]), nil
+	}
+	return "", "", fmt.Errorf("cannot split select clause %v", sc)
+}
+
+// Parse returns the components of an OnClause spitting it by '='
+func (oc OnClause) Parse() (SelectClause, SelectClause, error) {
+	result := strings.Split(string(oc), "=")
+	if len(result) == 2 {
+		return SelectClause(result[0]), SelectClause(result[1]), nil
+	}
+	return "", "", fmt.Errorf("cannot split on clause %v", oc)
+}
+
+// Find tries to find a named field inside the array
+func (f Fields) Find(name string) (Field, error) {
+
+	for _, field := range f {
+		if field.Name == name {
+			return field, nil
+		}
+	}
+	var result Field
+	return result, fmt.Errorf("field %v not found", name)
 }
