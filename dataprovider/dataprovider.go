@@ -36,7 +36,7 @@ func NewDataProvider(driver string) (DataProvider, error) {
 	var result DataProvider = nil
 	switch driver {
 	case "plaintext":
-		result = PlainTextDataProvider{}
+		result = &PlainTextDataProvider{}
 	}
 
 	return result, nil

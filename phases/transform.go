@@ -100,10 +100,11 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 			}
 
 			request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
-			value, err = provider.Fetch(request)
+			matching, err := provider.Fetch(request)
 			if err != nil {
 				return nil, err
 			}
+			value = matching[field]
 		}
 		result[key] = value
 	}
