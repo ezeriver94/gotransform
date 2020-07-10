@@ -11,9 +11,17 @@ type Request struct {
 // Record represents a single row which
 type Record map[string]interface{}
 
+// ConnectionMode indicates the type of connection
+type ConnectionMode int
+
+const (
+	ConnectionModeRead ConnectionMode = iota
+	ConenctionModeWrite
+)
+
 // DataProvider is a class that can perform actions against a datasource (fetching and saving data)
 type DataProvider interface {
-	Connect(conectionString, objectID string, fields []common.Field) error
+	Connect(conectionString, objectID string, fields []common.Field, connectionMode ConnectionMode) error
 
 	Fetch(r Request) (Record, error)
 

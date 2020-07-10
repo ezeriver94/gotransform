@@ -9,7 +9,10 @@ import (
 )
 
 // Transformed is the result of a transformation applied
-type Transformed map[string]interface{}
+type Transformed struct {
+	TransformationName string              `json:"transformationName"`
+	Record             dataprovider.Record `json:"record"`
+}
 
 // Transformer handles transformations of an ETL job
 type Transformer struct {
@@ -22,27 +25,26 @@ func NewTransformer(metadata *common.Metadata) (Transformer, error) {
 }
 
 // Transform applies transformation rules to input fields of a datasource
-func (t *Transformer) Transform(transformationName string, dataSourceFields map[string]interface{}) (Transformed, error) {
+func (t *Transformer) Transform(transformationName string, dataSourceFields map[string]interface{}) (*Transformed, error) {
 	transformation, ok := t.metadata.Transform[transformationName]
 	if !ok {
 		return nil, fmt.Errorf("invalid transformation with name %v in metadata", transformationName)
 	}
 	providers := make(map[string]dataprovider.DataProvider)
-	result := make(Transformed)
+	fields := make(dataprovider.Record)
 
 	for key, sel := range transformation.Select {
-		dataSourceName, field, err := sel.Parse()
+		dataSourceName, fieldName, err := sel.Parse()
 		if err != nil {
 			return nil, err
 		}
-		var value interface{}
 
 		if dataSourceName == transformation.From {
-			var ok bool
-			value, ok = dataSourceFields[field]
+			value, ok := dataSourceFields[fieldName]
 			if !ok {
-				return nil, fmt.Errorf("cannot find expected field %v in primary datasource values %v", field, dataSourceFields)
+				return nil, fmt.Errorf("cannot find expected field %v in primary datasource values %v", fieldName, dataSourceFields)
 			}
+			fields[key] = value
 		} else {
 			join, ok := transformation.Joins[dataSourceName]
 			if !ok {
@@ -57,9 +59,9 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 			if !ok {
 				provider, err = dataprovider.NewDataProvider(dataSource.Driver)
 				if err != nil {
-					return nil, fmt.Errorf("error building dataProvider from %v: %v", "", err)
+					return nil, fmt.Errorf("error building dataProvider for %v: %v", dataSource.Driver, err)
 				}
-				err := provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields)
+				err := provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields, dataprovider.ConnectionModeRead)
 				if err != nil {
 					return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", dataSource.Driver, dataSourceName, err)
 				}
@@ -104,12 +106,15 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 			if err != nil {
 				return nil, err
 			}
-			value = matching[field]
+			fields[key] = matching[fieldName]
 		}
-		result[key] = value
-	}
 
-	return result, nil
+	}
+	result := Transformed{
+		TransformationName: transformationName,
+		Record:             fields,
+	}
+	return &result, nil
 }
 
 // DeserializeTransformed deserializes a message to a Transformed instance

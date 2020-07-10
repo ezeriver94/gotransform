@@ -3,6 +3,7 @@ package dataprovider
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"strings"
@@ -18,14 +19,32 @@ type PlainTextDataProvider struct {
 }
 
 // Connect sets the filePath variable and checks if the requested path exists
-func (dp *PlainTextDataProvider) Connect(conectionString, objectID string, fields []common.Field) error {
-	_, err := os.Stat(conectionString)
-	if err != nil {
-		return err
-	}
+func (dp *PlainTextDataProvider) Connect(connectionString, objectID string, fields []common.Field, connectionMode ConnectionMode) error {
+
 	dp.fields = fields
-	dp.filePath = conectionString
-	file, err := os.Open(dp.filePath)
+	dp.filePath = connectionString
+	var flag int
+	if connectionMode == ConenctionModeWrite {
+		_, err := os.Stat(connectionString)
+		if err == nil {
+			return fmt.Errorf("error: target file %v already exists", connectionString)
+		}
+		if err == os.ErrNotExist {
+			_, err := os.Create(connectionString)
+			if err != nil {
+				return err
+			}
+		}
+		flag = os.O_WRONLY
+	} else {
+		_, err := os.Stat(connectionString)
+		if err != nil {
+			return err
+		}
+		flag = os.O_RDONLY
+	}
+
+	file, err := os.OpenFile(dp.filePath, flag, os.ModeAppend)
 	if err != nil {
 		return fmt.Errorf("error opening file %v : %v", dp.filePath, err)
 	}
@@ -58,6 +77,59 @@ func parseRecord(text string, fields common.Fields) (map[common.Field]string, er
 		} else {
 			return nil, fmt.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
 		}
+	}
+	return result, nil
+}
+func fieldToString(data interface{}) string {
+	switch data.(type) {
+	case bool:
+		if data.(bool) == true {
+			return "1"
+		}
+		return "0"
+	default:
+		return fmt.Sprint(data)
+	}
+}
+func (r *Record) toString(fields common.Fields) (string, error) {
+	result := ""
+	for fieldName, value := range *r {
+		field, err := fields.Find(fieldName)
+		if err != nil {
+			return result, fmt.Errorf("cannot find field %v in target", fieldName)
+		}
+		var fieldValue string
+		stringValue := fieldToString(value)
+		if field.FixedLength > 0 {
+			if len(stringValue) > field.FixedLength {
+				return result, fmt.Errorf("field %v has fixed length of %v and current value %v has longer length (%v)", field.Name, field.FixedLength, stringValue, len(stringValue))
+			}
+			if len(stringValue) == field.FixedLength {
+				fieldValue = stringValue
+			} else {
+				if len(field.Padding.Char) != 1 {
+					return result, fmt.Errorf("field %v has fixed length but padding character has not length of 1", field.Name)
+				}
+				if field.Padding.Mode == common.FieldPaddingLeft {
+					fieldValue = strings.Repeat(field.Padding.Char, field.FixedLength-len(stringValue)) + stringValue
+				} else if field.Padding.Mode == common.FieldPaddingRight {
+					fieldValue = stringValue + strings.Repeat(field.Padding.Char, field.FixedLength-len(stringValue))
+				}
+			}
+		} else {
+			if len(field.EndCharacter) != 1 {
+				return result, fmt.Errorf("field %v has no fixed length and end character has not length of 1", field.Name)
+			}
+			if len(stringValue) > field.MaxLength {
+				return result, fmt.Errorf("field %v has max length of %v and value %v is longer than that (%v)", field.Name, field.MaxLength, stringValue, len(stringValue))
+			}
+			fieldValue = stringValue
+			if len(stringValue) < field.MaxLength {
+				fieldValue += field.EndCharacter
+			}
+		}
+
+		result += fieldValue
 	}
 	return result, nil
 }
@@ -100,10 +172,25 @@ func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- Record) error {
 
 // Save writes the data sent into de buffer to the connection
 func (dp *PlainTextDataProvider) Save(buffer <-chan Record) error {
-	return nil
+	// writer := bufio.NewWriter(dp.file)
+	for {
+		select {
+		case record := <-buffer:
+			strRecord, err := record.toString(dp.fields)
+			if err != nil {
+				log.Print(fmt.Errorf("error building string line from record: %v", err))
+			}
+			n, err := fmt.Fprintln(dp.file, strRecord)
+			if err != nil {
+				log.Print(fmt.Errorf("error writing line %v to file: %v", strRecord, err))
+			}
+			log.Printf("printed %v bytes to file ", n)
+		}
+	}
 }
 
 // Close closes the file (if it was opened)
 func (dp *PlainTextDataProvider) Close() error {
-	return nil
+	err := dp.file.Close()
+	return err
 }
