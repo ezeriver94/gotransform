@@ -19,7 +19,7 @@ func NewLoader(metadata *common.Metadata) (Loader, error) {
 }
 
 // Load the transformed data to a data endpoint
-func (l *Loader) Load(transforms <-chan Transformed) error {
+func (l *Loader) Load(transforms <-chan Transformed, done <-chan error) error {
 	providers := make(map[string]dataprovider.DataProvider)
 	records := make(chan dataprovider.Record)
 	for key, target := range l.metadata.Load {
@@ -35,6 +35,7 @@ func (l *Loader) Load(transforms <-chan Transformed) error {
 		go provider.Save(records)
 	}
 	closed := false
+Loop:
 	for {
 		select {
 		case transformedRecord, more := <-transforms:
@@ -42,9 +43,13 @@ func (l *Loader) Load(transforms <-chan Transformed) error {
 			if !more {
 				closed = true
 			}
-		}
-		if closed {
-			break
+		case err := <-done:
+			log.Printf("done receiving messages. result: %v", err)
+			closed = true
+		default:
+			if closed {
+				break Loop
+			}
 		}
 	}
 	close(records)
