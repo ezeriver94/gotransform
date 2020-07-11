@@ -31,6 +31,7 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 		return nil, fmt.Errorf("invalid transformation with name %v in metadata", transformationName)
 	}
 	providers := make(map[string]dataprovider.DataProvider)
+	joins := make(map[string]dataprovider.Record)
 	fields := make(dataprovider.Record)
 
 	for key, sel := range transformation.Select {
@@ -46,67 +47,72 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 			}
 			fields[key] = value
 		} else {
-			join, ok := transformation.Joins[dataSourceName]
+			joinedRecord, ok := joins[dataSourceName]
 			if !ok {
-				return nil, fmt.Errorf("join %v not found in metadata", dataSourceName)
-			}
-			dataSourceName = join.To
-			dataSource, ok := t.metadata.Extract.AditionalDataSources[dataSourceName]
-			if !ok {
-				return nil, fmt.Errorf("datasource %v not found in metadata", dataSourceName)
-			}
-			provider, ok := providers[dataSourceName]
-			if !ok {
-				provider, err = dataprovider.NewDataProvider(dataSource.Driver)
-				if err != nil {
-					return nil, fmt.Errorf("error building dataProvider for %v: %v", dataSource.Driver, err)
+				join, ok := transformation.Joins[dataSourceName]
+				if !ok {
+					return nil, fmt.Errorf("join %v not found in metadata", dataSourceName)
 				}
-				err := provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields, dataprovider.ConnectionModeRead)
-				if err != nil {
-					return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", dataSource.Driver, dataSourceName, err)
+				dataSourceName = join.To
+				dataSource, ok := t.metadata.Extract.AditionalDataSources[dataSourceName]
+				if !ok {
+					return nil, fmt.Errorf("datasource %v not found in metadata", dataSourceName)
 				}
+				provider, ok := providers[dataSourceName]
+				if !ok {
+					provider, err = dataprovider.NewDataProvider(dataSource.Driver)
+					if err != nil {
+						return nil, fmt.Errorf("error building dataProvider for %v: %v", dataSource.Driver, err)
+					}
+					err := provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields, dataprovider.ConnectionModeRead)
+					if err != nil {
+						return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", dataSource.Driver, dataSourceName, err)
+					}
 
-				providers[dataSourceName] = provider
-			}
-			filters := make(map[common.Field]interface{})
+					providers[dataSourceName] = provider
+				}
+				filters := make(map[common.Field]interface{})
 
-			for _, onClause := range join.On {
-				source, target, err := onClause.Parse()
-				if err != nil {
-					return nil, err
-				}
-				sourceName, sourceField, err := source.Parse()
-				if err != nil {
-					return nil, err
-				}
-				targetName, targetField, err := target.Parse()
-				if err != nil {
-					return nil, err
-				}
-
-				if sourceName == transformation.From && targetName == join.To {
-					field, err := dataSource.Fields.Find(targetField)
+				for _, onClause := range join.On {
+					source, target, err := onClause.Parse()
 					if err != nil {
 						return nil, err
 					}
-					filters[field] = dataSourceFields[sourceField]
-				} else if targetName == transformation.From && sourceName == join.To {
-					field, err := dataSource.Fields.Find(sourceField)
+					sourceName, sourceField, err := source.Parse()
 					if err != nil {
 						return nil, err
 					}
-					filters[field] = dataSourceFields[targetField]
-				} else {
-					// TODO: contemplar joins previos
-				}
-			}
+					targetName, targetField, err := target.Parse()
+					if err != nil {
+						return nil, err
+					}
 
-			request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
-			matching, err := provider.Fetch(request)
-			if err != nil {
-				return nil, err
+					if sourceName == transformation.From && targetName == join.To {
+						field, err := dataSource.Fields.Find(targetField)
+						if err != nil {
+							return nil, err
+						}
+						filters[field] = dataSourceFields[sourceField]
+					} else if targetName == transformation.From && sourceName == join.To {
+						field, err := dataSource.Fields.Find(sourceField)
+						if err != nil {
+							return nil, err
+						}
+						filters[field] = dataSourceFields[targetField]
+					} else {
+						// TODO: contemplar joins previos
+					}
+				}
+
+				request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
+				matching, err := provider.Fetch(request)
+				if err != nil {
+					return nil, err
+				}
+				joinedRecord = matching
+				joins[dataSourceName] = matching
 			}
-			fields[key] = matching[fieldName]
+			fields[key] = joinedRecord[fieldName]
 		}
 
 	}
