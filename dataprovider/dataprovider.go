@@ -1,6 +1,10 @@
 package dataprovider
 
-import "github.com/ezeriver94/gotransform/common"
+import (
+	"fmt"
+
+	"github.com/ezeriver94/gotransform/common"
+)
 
 // Request contains the information needed for the dataprovider to fetch data
 type Request struct {
@@ -48,4 +52,27 @@ func NewDataProvider(driver string) (DataProvider, error) {
 	}
 
 	return result, nil
+}
+func fieldToString(data interface{}) string {
+	switch data.(type) {
+	case bool:
+		if data.(bool) == true {
+			return "1"
+		}
+		return "0"
+	default:
+		if data == nil {
+			return ""
+		}
+		return fmt.Sprint(data)
+	}
+}
+
+// ToString converts a request to a string value
+func (r *Request) ToString() string {
+	var filters string
+	for field, value := range r.Filters {
+		filters += field.Name + ":" + fieldToString(value) + "#"
+	}
+	return fmt.Sprintf("%v->%v", r.ObjectID, filters)
 }

@@ -1,12 +1,15 @@
 package phases
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/ezeriver94/gotransform/common"
 	"github.com/ezeriver94/gotransform/dataprovider"
+	"github.com/go-redis/cache/v8"
 )
 
 // Transformed is the result of a transformation applied
@@ -18,11 +21,15 @@ type Transformed struct {
 // Transformer handles transformations of an ETL job
 type Transformer struct {
 	metadata *common.Metadata
+	cache    *cache.Cache
 }
 
 // NewTransformer creates a transformer using the passed metadata
-func NewTransformer(metadata *common.Metadata) (Transformer, error) {
-	return Transformer{metadata: metadata}, nil
+func NewTransformer(metadata *common.Metadata, cache *cache.Cache) (Transformer, error) {
+	return Transformer{
+		metadata: metadata,
+		cache:    cache,
+	}, nil
 }
 
 // Transform applies transformation rules to input fields of a datasource
@@ -143,9 +150,27 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 					}
 
 					request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
-					matching, err := provider.Fetch(request)
-					if err != nil {
-						return nil, err
+					var matching dataprovider.Record
+					ctx := context.TODO()
+					cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
+
+					if err := t.cache.Get(ctx, cacheKey, &matching); err != nil {
+						log.Printf("cache miss for key %v. fetching data", cacheKey)
+						matching, err = provider.Fetch(request)
+						if err != nil {
+							return nil, err
+						}
+						log.Printf("saving key %v with value %v in cache", cacheKey, matching)
+						if err := t.cache.Set(&cache.Item{
+							Ctx:   ctx,
+							Key:   cacheKey,
+							Value: matching,
+							TTL:   time.Hour,
+						}); err != nil {
+							return nil, fmt.Errorf("error saving on cache %v", err)
+						}
+					} else {
+						log.Printf("cache hit for key %v", cacheKey)
 					}
 					joinedRecord = matching
 					joins[dataSourceName] = matching

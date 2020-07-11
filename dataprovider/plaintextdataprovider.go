@@ -80,20 +80,7 @@ func parseRecord(text string, fields common.Fields) (map[common.Field]string, er
 	}
 	return result, nil
 }
-func fieldToString(data interface{}) string {
-	switch data.(type) {
-	case bool:
-		if data.(bool) == true {
-			return "1"
-		}
-		return "0"
-	default:
-		if data == nil {
-			return ""
-		}
-		return fmt.Sprint(data)
-	}
-}
+
 func (r *Record) toString(fields common.Fields) (string, error) {
 	result := ""
 	for _, field := range fields {
