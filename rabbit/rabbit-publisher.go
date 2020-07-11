@@ -8,20 +8,7 @@ import (
 )
 
 // Publish sends a message to a rabbit connection
-func Publish(channel *amqp.Channel, exchange, exchangeType, routingKey string, body []byte, reliable bool, headers map[string]interface{}) error {
-
-	log.Printf("got Channel, declaring %q Exchange (%q)", exchangeType, exchange)
-	if err := channel.ExchangeDeclare(
-		exchange,     // name
-		exchangeType, // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // noWait
-		nil,          // arguments
-	); err != nil {
-		return fmt.Errorf("Exchange Declare: %s", err)
-	}
+func Publish(channel *amqp.Channel, exchange, routingKey string, body []byte, reliable bool, headers map[string]interface{}) error {
 
 	// Reliable publisher confirms require confirm.select support from the
 	// connection.
@@ -36,7 +23,7 @@ func Publish(channel *amqp.Channel, exchange, exchangeType, routingKey string, b
 		defer confirmOne(confirms)
 	}
 
-	log.Printf("declared Exchange, publishing %dB body (%q)", len(body), body)
+	log.Printf("publishing %dB body (%q)", len(body), body)
 	if err := channel.Publish(
 		exchange,   // publish to an exchange
 		routingKey, // routing to 0 or more queues

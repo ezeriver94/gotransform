@@ -153,7 +153,7 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 		}
 		matches = true
 		for filterField, filterValue := range r.Filters {
-			matches = matches && string(parsed[filterField]) == filterValue
+			matches = matches && string(parsed[filterField]) == fieldToString(filterValue)
 		}
 		if matches {
 			for _, field := range dp.fields {
