@@ -13,7 +13,7 @@ type Loader struct {
 	metadata *common.Metadata
 }
 
-// NewLoader creates a transformer using the passed metadata
+// NewLoader creates a loader using the passed metadata
 func NewLoader(metadata *common.Metadata) (Loader, error) {
 	return Loader{metadata: metadata}, nil
 }

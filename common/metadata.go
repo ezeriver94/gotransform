@@ -7,6 +7,9 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// EndOfStreamHeader indicates the header name which indicates that the streaming has ended
+const EndOfStreamHeader = "EOS"
+
 // Fields represents the set of fields of a datasource
 type Fields []Field
 

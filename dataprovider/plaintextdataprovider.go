@@ -29,7 +29,7 @@ func (dp *PlainTextDataProvider) Connect(connectionString, objectID string, fiel
 		if err == nil {
 			return fmt.Errorf("error: target file %v already exists", connectionString)
 		}
-		if err == os.ErrNotExist {
+		if os.IsNotExist(err) {
 			_, err := os.Create(connectionString)
 			if err != nil {
 				return err
@@ -72,7 +72,7 @@ func parseRecord(text string, fields common.Fields) (map[common.Field]string, er
 			} else {
 				index := math.Min(float64(end), float64(nextToVisit+field.MaxLength))
 				result[field] = text[nextToVisit : nextToVisit+int(index)]
-				nextToVisit = int(index) + 1
+				nextToVisit += int(index) + 1
 			}
 		} else {
 			return nil, fmt.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
@@ -88,14 +88,18 @@ func fieldToString(data interface{}) string {
 		}
 		return "0"
 	default:
+		if data == nil {
+			return ""
+		}
 		return fmt.Sprint(data)
 	}
 }
 func (r *Record) toString(fields common.Fields) (string, error) {
 	result := ""
-	for fieldName, value := range *r {
-		field, err := fields.Find(fieldName)
-		if err != nil {
+	for _, field := range fields {
+		fieldName := field.Name
+		value, ok := (*r)[fieldName]
+		if !ok {
 			return result, fmt.Errorf("cannot find field %v in target", fieldName)
 		}
 		var fieldValue string
@@ -166,7 +170,31 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 }
 
 // Stream reads every record in the file that matchs the filters in the request, and writes into the channel every one
-func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- Record) error {
+func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) error {
+	scanner := bufio.NewScanner(dp.file)
+	var matches bool
+	for scanner.Scan() {
+		text := scanner.Text()
+		if len(strings.TrimSpace(text)) == 0 {
+			continue
+		}
+		parsed, err := parseRecord(text, dp.fields)
+		if err != nil {
+			return fmt.Errorf("error parsing record %v, %v", text, err)
+		}
+		matches = true
+		for filterField, filterValue := range r.Filters {
+			matches = matches && string(parsed[filterField]) == filterValue
+		}
+		if matches {
+			record := make([]interface{}, len(dp.fields))
+			for index, field := range dp.fields {
+				record[index] = parsed[field]
+			}
+			buffer <- record
+		}
+	}
+	close(buffer)
 	return nil
 }
 

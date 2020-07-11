@@ -25,7 +25,7 @@ type DataProvider interface {
 
 	Fetch(r Request) (Record, error)
 
-	Stream(r Request, buffer chan<- Record) error
+	Stream(r Request, buffer chan<- []interface{}) error
 	Save(buffer <-chan Record) error
 
 	Close() error
