@@ -151,27 +151,35 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 
 					request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
 					var matching dataprovider.Record
-					ctx := context.TODO()
-					cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
+					if t.cache != nil {
+						ctx := context.TODO()
+						cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
 
-					if err := t.cache.Get(ctx, cacheKey, &matching); err != nil {
-						log.Printf("cache miss for key %v. fetching data", cacheKey)
+						if err := t.cache.Get(ctx, cacheKey, &matching); err != nil {
+							log.Printf("cache miss for key %v. fetching data", cacheKey)
+							matching, err = provider.Fetch(request)
+							if err != nil {
+								return nil, err
+							}
+							log.Printf("saving key %v with value %v in cache", cacheKey, matching)
+							if err := t.cache.Set(&cache.Item{
+								Ctx:   ctx,
+								Key:   cacheKey,
+								Value: matching,
+								TTL:   time.Hour,
+							}); err != nil {
+								return nil, fmt.Errorf("error saving on cache %v", err)
+							}
+						} else {
+							log.Printf("cache hit for key %v", cacheKey)
+						}
+					} else {
 						matching, err = provider.Fetch(request)
 						if err != nil {
 							return nil, err
 						}
-						log.Printf("saving key %v with value %v in cache", cacheKey, matching)
-						if err := t.cache.Set(&cache.Item{
-							Ctx:   ctx,
-							Key:   cacheKey,
-							Value: matching,
-							TTL:   time.Hour,
-						}); err != nil {
-							return nil, fmt.Errorf("error saving on cache %v", err)
-						}
-					} else {
-						log.Printf("cache hit for key %v", cacheKey)
 					}
+
 					joinedRecord = matching
 					joins[dataSourceName] = matching
 				}
