@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/ezeriver94/gotransform/common"
@@ -20,15 +21,19 @@ type Transformed struct {
 
 // Transformer handles transformations of an ETL job
 type Transformer struct {
-	metadata *common.Metadata
-	cache    *cache.Cache
+	metadata      *common.Metadata
+	cache         *cache.Cache
+	dataProviders map[string]dataprovider.DataProvider
+	sync          sync.Mutex
 }
 
 // NewTransformer creates a transformer using the passed metadata
 func NewTransformer(metadata *common.Metadata, cache *cache.Cache) (Transformer, error) {
 	return Transformer{
-		metadata: metadata,
-		cache:    cache,
+		metadata:      metadata,
+		cache:         cache,
+		dataProviders: map[string]dataprovider.DataProvider{},
+		sync:          sync.Mutex{},
 	}, nil
 }
 
@@ -38,7 +43,6 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 	if !ok {
 		return nil, fmt.Errorf("invalid transformation with name %v in metadata", transformationName)
 	}
-	providers := make(map[string]dataprovider.DataProvider)
 	joins := make(map[string]dataprovider.Record)
 	fields := make(dataprovider.Record)
 
@@ -79,7 +83,7 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 					if !ok {
 						return nil, fmt.Errorf("datasource %v not found in metadata", dataSourceName)
 					}
-					provider, ok := providers[dataSourceName]
+					provider, ok := t.dataProviders[dataSourceName]
 					if !ok {
 						provider, err = dataprovider.NewDataProvider(dataSource.Driver)
 						if err != nil {
@@ -89,8 +93,12 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 						if err != nil {
 							return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", dataSource.Driver, dataSourceName, err)
 						}
+						t.sync.Lock()
+						if _, ok := t.dataProviders[dataSourceName]; !ok {
+							t.dataProviders[dataSourceName] = provider
+						}
+						t.sync.Unlock()
 
-						providers[dataSourceName] = provider
 					}
 					filters := make(map[common.Field]interface{})
 

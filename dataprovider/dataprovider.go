@@ -67,6 +67,20 @@ func fieldToString(data interface{}) string {
 		return fmt.Sprint(data)
 	}
 }
+func fieldToRuneArray(data interface{}) []rune {
+	switch data.(type) {
+	case bool:
+		if data.(bool) == true {
+			return []rune("1")
+		}
+		return []rune("0")
+	default:
+		if data == nil {
+			return []rune("")
+		}
+		return []rune(fmt.Sprint(data))
+	}
+}
 
 // ToString converts a request to a string value
 func (r *Request) ToString() string {

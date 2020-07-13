@@ -2,10 +2,11 @@ package dataprovider
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/ezeriver94/gotransform/common"
@@ -16,6 +17,30 @@ type PlainTextDataProvider struct {
 	filePath string
 	fields   []common.Field
 	file     *os.File
+	regexp   *regexp.Regexp
+}
+
+func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
+	regex := "^"
+	var err error = nil
+	for _, field := range fields {
+		if field.FixedLength > 0 {
+			regex += fmt.Sprintf("(.{%v})", field.FixedLength)
+		} else if field.MaxLength > 0 && len(field.EndCharacter) == 1 {
+			regex += fmt.Sprintf("(?:([^%v]{%v})|(?:([^%v]{0,%v})%v))", field.EndCharacter, field.MaxLength, field.EndCharacter, field.MaxLength-1, field.EndCharacter)
+		} else {
+			log.Print(fmt.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name))
+			if err == nil {
+				err = errors.New("error on one or more dataEndpoint fields")
+			}
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	regex += "$"
+	result, err := regexp.Compile(regex)
+	return result, err
 }
 
 // Connect sets the filePath variable and checks if the requested path exists
@@ -23,6 +48,12 @@ func (dp *PlainTextDataProvider) Connect(connectionString, objectID string, fiel
 
 	dp.fields = fields
 	dp.filePath = connectionString
+	regex, err := getRegexp(fields)
+	if err != nil {
+		return fmt.Errorf("error generating regex: %v", err)
+	}
+	dp.regexp = regex
+
 	var flag int
 	if connectionMode == ConenctionModeWrite {
 		_, err := os.Stat(connectionString)
@@ -53,34 +84,23 @@ func (dp *PlainTextDataProvider) Connect(connectionString, objectID string, fiel
 	return nil
 }
 
-func parseRecord(text string, fields common.Fields) (map[common.Field]string, error) {
-	nextToVisit := 0
-	length := len(text)
-	result := make(map[common.Field]string, len(fields))
-	for _, field := range fields {
-		if field.FixedLength > 0 {
-			if length-nextToVisit < field.FixedLength {
-				return nil, fmt.Errorf("error parsing line %v, expected length greater than %v and got %v ", text, nextToVisit+field.FixedLength, length)
-			}
-			result[field] = text[nextToVisit : nextToVisit+field.FixedLength]
-			nextToVisit = nextToVisit + field.FixedLength
-		} else if field.MaxLength > 0 && len(field.EndCharacter) > 0 {
-			end := strings.Index(text[nextToVisit:], field.EndCharacter)
-			if end == -1 {
-				result[field] = text[nextToVisit : nextToVisit+field.MaxLength]
-				nextToVisit = nextToVisit + field.MaxLength
-			} else {
-				index := math.Min(float64(end), float64(nextToVisit+field.MaxLength))
-				result[field] = text[nextToVisit : nextToVisit+int(index)]
-				nextToVisit += int(index) + 1
-			}
-		} else {
-			return nil, fmt.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
+func (dp *PlainTextDataProvider) parseRecord(text string) (map[common.Field]string, error) {
+	result := make(map[common.Field]string, len(dp.fields))
+	matchs := dp.regexp.FindSubmatch([]byte(text))
+
+	if matchs == nil {
+		return result, fmt.Errorf("text %v does not match regex %v", text, dp.regexp)
+	}
+	i := 0
+	for _, match := range matchs[1:] {
+		if match != nil {
+			field := dp.fields[i]
+			result[field] = string(match)
+			i++
 		}
 	}
 	return result, nil
 }
-
 func (r *Record) toString(fields common.Fields) (string, error) {
 	result := ""
 	for _, field := range fields {
@@ -90,32 +110,33 @@ func (r *Record) toString(fields common.Fields) (string, error) {
 			return result, fmt.Errorf("cannot find field %v in target", fieldName)
 		}
 		var fieldValue string
-		stringValue := fieldToString(value)
+		runeArrayValue := fieldToRuneArray(value)
+		stringValue := string(runeArrayValue)
 		if field.FixedLength > 0 {
-			if len(stringValue) > field.FixedLength {
-				return result, fmt.Errorf("field %v has fixed length of %v and current value %v has longer length (%v)", field.Name, field.FixedLength, stringValue, len(stringValue))
+			if len(runeArrayValue) > field.FixedLength {
+				return result, fmt.Errorf("field %v has fixed length of %v and current value %v has longer length (%v)", field.Name, field.FixedLength, stringValue, len(runeArrayValue))
 			}
-			if len(stringValue) == field.FixedLength {
+			if len(runeArrayValue) == field.FixedLength {
 				fieldValue = stringValue
 			} else {
 				if len(field.Padding.Char) != 1 {
 					return result, fmt.Errorf("field %v has fixed length but padding character has not length of 1", field.Name)
 				}
 				if field.Padding.Mode == common.FieldPaddingLeft {
-					fieldValue = strings.Repeat(field.Padding.Char, field.FixedLength-len(stringValue)) + stringValue
+					fieldValue = strings.Repeat(field.Padding.Char, field.FixedLength-len(runeArrayValue)) + stringValue
 				} else if field.Padding.Mode == common.FieldPaddingRight {
-					fieldValue = stringValue + strings.Repeat(field.Padding.Char, field.FixedLength-len(stringValue))
+					fieldValue = stringValue + strings.Repeat(field.Padding.Char, field.FixedLength-len(runeArrayValue))
 				}
 			}
 		} else {
 			if len(field.EndCharacter) != 1 {
 				return result, fmt.Errorf("field %v has no fixed length and end character has not length of 1", field.Name)
 			}
-			if len(stringValue) > field.MaxLength {
-				return result, fmt.Errorf("field %v has max length of %v and value %v is longer than that (%v)", field.Name, field.MaxLength, stringValue, len(stringValue))
+			if len(runeArrayValue) > field.MaxLength {
+				return result, fmt.Errorf("field %v has max length of %v and value %v is longer than that (%v)", field.Name, field.MaxLength, stringValue, len(runeArrayValue))
 			}
 			fieldValue = stringValue
-			if len(stringValue) < field.MaxLength {
+			if len(runeArrayValue) < field.MaxLength {
 				fieldValue += field.EndCharacter
 			}
 		}
@@ -134,7 +155,7 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 	for scanner.Scan() {
 		line++
 		text := scanner.Text()
-		parsed, err := parseRecord(text, dp.fields)
+		parsed, err := dp.parseRecord(text)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing record %v, %v", text, err)
 		}
@@ -165,7 +186,7 @@ func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) 
 		if len(strings.TrimSpace(text)) == 0 {
 			continue
 		}
-		parsed, err := parseRecord(text, dp.fields)
+		parsed, err := dp.parseRecord(text)
 		if err != nil {
 			return fmt.Errorf("error parsing record %v, %v", text, err)
 		}
