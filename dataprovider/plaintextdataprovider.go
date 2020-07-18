@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/ezeriver94/gotransform/common"
 )
@@ -186,33 +187,40 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 	}
 	return result, nil
 }
+func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer chan<- []interface{}, wait *sync.WaitGroup) {
+	defer wait.Done()
+	if len(strings.TrimSpace(record)) == 0 {
+		return
+	}
+	parsed, err := dp.parseRecord(record)
+	if err != nil {
+		log.Print(fmt.Errorf("error parsing record %v, %v", record, err))
+		return
+	}
+	matches := true
+	for filterField, filterValue := range req.Filters {
+		matches = matches && string(parsed[filterField]) == filterValue
+	}
+	if matches {
+		result := make([]interface{}, len(dp.fields))
+		for index, field := range dp.fields {
+			result[index] = parsed[field]
+		}
+		buffer <- result
+	}
+}
 
 // Stream reads every record in the file that matchs the filters in the request, and writes into the channel every one
 func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) error {
+	wait := sync.WaitGroup{}
+
 	scanner := bufio.NewScanner(dp.file)
-	var matches bool
 	for scanner.Scan() {
 		text := scanner.Text()
-		if len(strings.TrimSpace(text)) == 0 {
-			continue
-		}
-		parsed, err := dp.parseRecord(text)
-		if err != nil {
-			return fmt.Errorf("error parsing record %v, %v", text, err)
-		}
-		matches = true
-		for filterField, filterValue := range r.Filters {
-			matches = matches && string(parsed[filterField]) == filterValue
-		}
-		if matches {
-			record := make([]interface{}, len(dp.fields))
-			for index, field := range dp.fields {
-				record[index] = parsed[field]
-			}
-			buffer <- record
-		}
+		wait.Add(1)
+		go dp.streamRecord(text, r, buffer, &wait)
 	}
-	close(buffer)
+	wait.Wait()
 	return nil
 }
 

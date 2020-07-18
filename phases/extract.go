@@ -15,26 +15,28 @@ type Extractor struct {
 
 // NewExtractor creates an extractor using the passed metadata
 func NewExtractor(metadata *common.Metadata) (Extractor, error) {
-	return Extractor{metadata: metadata}, nil
+	return Extractor{
+		metadata: metadata,
+	}, nil
 }
 
-// Extract reads a
-func (e *Extractor) Extract(dataSourceName string, records chan<- []interface{}) {
+// Extract reads every record of a dataSource and streams it into the records channel
+func (e *Extractor) Extract(dataSourceName string, records chan<- []interface{}) error {
 	provider, err := dataprovider.GetDataProviderFromDataSource(e.metadata, dataSourceName, true)
 	if err != nil {
-		log.Print(err)
-		return
+		return err
 	}
 	err = provider.Connect(dataprovider.ConnectionModeRead)
 	if err != nil {
-		log.Print(fmt.Errorf("error connecting to datasource %v: %v", dataSourceName, err))
+		return fmt.Errorf("error connecting to datasource %v: %v", dataSourceName, err)
 	}
 	request := provider.NewRequest(nil)
 
 	err = provider.Stream(request, records)
 	if err != nil {
-		log.Print(fmt.Errorf("error streaming datasource %v: %v", dataSourceName, err))
-	} else {
-		log.Printf("extraction for datasource %v finished successfully", dataSourceName)
+		return fmt.Errorf("error streaming datasource %v: %v", dataSourceName, err)
 	}
+	log.Printf("extraction for datasource %v finished successfully", dataSourceName)
+	return nil
+
 }
