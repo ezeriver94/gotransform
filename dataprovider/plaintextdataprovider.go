@@ -14,6 +14,7 @@ import (
 
 // PlainTextDataProvider is a dataprovider that can interact with text files, encoded in plain text
 type PlainTextDataProvider struct {
+	objectID string
 	filePath string
 	fields   []common.Field
 	file     *os.File
@@ -43,32 +44,41 @@ func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 	return result, err
 }
 
-// Connect sets the filePath variable and checks if the requested path exists
-func (dp *PlainTextDataProvider) Connect(connectionString, objectID string, fields []common.Field, connectionMode ConnectionMode) error {
-
-	dp.fields = fields
-	dp.filePath = connectionString
-	regex, err := getRegexp(fields)
-	if err != nil {
-		return fmt.Errorf("error generating regex: %v", err)
+// NewPlainTextDataProvider creates a new plain text data provider from the dataEndpoint information
+func NewPlainTextDataProvider(dataEndpoint common.DataEndpoint) (*PlainTextDataProvider, error) {
+	result := PlainTextDataProvider{
+		filePath: dataEndpoint.ConnectionString,
+		fields:   dataEndpoint.Fields,
+		objectID: dataEndpoint.ObjectIdentifier,
 	}
-	dp.regexp = regex
+
+	regex, err := getRegexp(dataEndpoint.Fields)
+	if err != nil {
+		return nil, fmt.Errorf("error generating regex: %v", err)
+	}
+	result.regexp = regex
+
+	return &result, nil
+}
+
+// Connect sets the filePath variable and checks if the requested path exists
+func (dp *PlainTextDataProvider) Connect(connectionMode ConnectionMode) error {
 
 	var flag int
 	if connectionMode == ConenctionModeWrite {
-		_, err := os.Stat(connectionString)
+		_, err := os.Stat(dp.filePath)
 		if err == nil {
-			return fmt.Errorf("error: target file %v already exists", connectionString)
+			return fmt.Errorf("error: target file %v already exists", dp.filePath)
 		}
 		if os.IsNotExist(err) {
-			_, err := os.Create(connectionString)
+			_, err := os.Create(dp.filePath)
 			if err != nil {
 				return err
 			}
 		}
 		flag = os.O_WRONLY
 	} else {
-		_, err := os.Stat(connectionString)
+		_, err := os.Stat(dp.filePath)
 		if err != nil {
 			return err
 		}
@@ -229,4 +239,12 @@ func (dp *PlainTextDataProvider) Save(buffer <-chan Record) error {
 func (dp *PlainTextDataProvider) Close() error {
 	err := dp.file.Close()
 	return err
+}
+
+// NewRequest creates a new request for the plaintext dataprovider
+func (dp *PlainTextDataProvider) NewRequest(filters map[common.Field]interface{}) Request {
+	return Request{
+		ObjectID: dp.objectID,
+		Filters:  filters,
+	}
 }

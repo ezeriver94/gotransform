@@ -23,11 +23,11 @@ func (l *Loader) Load(transforms <-chan Transformed) error {
 	providers := make(map[string]dataprovider.DataProvider)
 	records := make(chan dataprovider.Record)
 	for key, target := range l.metadata.Load {
-		provider, err := dataprovider.NewDataProvider(target.DataEndpoint.Driver)
+		provider, err := dataprovider.NewDataProvider(target.DataEndpoint)
 		if err != nil {
 			return fmt.Errorf("error building dataProvider %v for target %v from %v: %v", target.Driver, key, "", err)
 		}
-		err = provider.Connect(target.DataEndpoint.ConnectionString, target.DataEndpoint.ObjectIdentifier, target.DataEndpoint.Fields, dataprovider.ConenctionModeWrite)
+		err = provider.Connect(dataprovider.ConenctionModeWrite)
 		if err != nil {
 			return fmt.Errorf("error connecting to driver %v for target %v: %v", target.Driver, key, err)
 		}

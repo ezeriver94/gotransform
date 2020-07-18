@@ -2,6 +2,7 @@ package dataprovider
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/ezeriver94/gotransform/common"
 )
@@ -25,8 +26,9 @@ const (
 
 // DataProvider is a class that can perform actions against a datasource (fetching and saving data)
 type DataProvider interface {
-	Connect(conectionString, objectID string, fields []common.Field, connectionMode ConnectionMode) error
+	Connect(connectionMode ConnectionMode) error
 
+	NewRequest(filters map[common.Field]interface{}) Request
 	Fetch(r Request) (Record, error)
 
 	Stream(r Request, buffer chan<- []interface{}) error
@@ -35,23 +37,43 @@ type DataProvider interface {
 	Close() error
 }
 
-// NewRequest creates a request
-func NewRequest(objectID string, filters map[common.Field]interface{}) Request {
-	return Request{
-		ObjectID: objectID,
-		Filters:  filters,
+// GetDataProviderFromDataSource returns a new dataprovider from the driver defined in the datasource
+func GetDataProviderFromDataSource(metadata *common.Metadata, dataSourceName string, isPrimary bool) (DataProvider, error) {
+	var dataSourcesMap map[string]common.DataEndpoint
+	if isPrimary {
+		dataSourcesMap = metadata.Extract.PrimaryDataSources
+	} else {
+		dataSourcesMap = metadata.Extract.AditionalDataSources
 	}
+
+	dataSource, ok := dataSourcesMap[dataSourceName]
+	if !ok {
+		var dataSourceType string
+		if isPrimary {
+			dataSourceType = "primary"
+		} else {
+			dataSourceType = "aditional"
+		}
+		return nil, fmt.Errorf("dataSource %v not found in the %v datasources map of metadata", dataSourceName, dataSourceType)
+	}
+
+	result, err := NewDataProvider(dataSource)
+	if err != nil {
+		log.Print(fmt.Errorf("error creating dataprovider for driver %v", dataSource.Driver))
+	}
+	return result, nil
 }
 
 // NewDataProvider creates an instance of a dataprovider according to the driver passed as argument
-func NewDataProvider(driver string) (DataProvider, error) {
-	var result DataProvider = nil
-	switch driver {
+func NewDataProvider(dataSource common.DataEndpoint) (DataProvider, error) {
+	var result DataProvider
+	var err error
+	switch dataSource.Driver {
 	case "plaintext":
-		result = &PlainTextDataProvider{}
+		result, err = NewPlainTextDataProvider(dataSource)
 	}
 
-	return result, nil
+	return result, err
 }
 func fieldToString(data interface{}) string {
 	switch data.(type) {

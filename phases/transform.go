@@ -85,11 +85,11 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 					}
 					provider, ok := t.dataProviders[dataSourceName]
 					if !ok {
-						provider, err = dataprovider.NewDataProvider(dataSource.Driver)
+						provider, err = dataprovider.NewDataProvider(dataSource)
 						if err != nil {
 							return nil, fmt.Errorf("error building dataProvider for %v: %v", dataSource.Driver, err)
 						}
-						err := provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields, dataprovider.ConnectionModeRead)
+						err := provider.Connect(dataprovider.ConnectionModeRead)
 						if err != nil {
 							return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", dataSource.Driver, dataSourceName, err)
 						}
@@ -157,7 +157,7 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 						}
 					}
 
-					request := dataprovider.NewRequest(dataSource.ObjectIdentifier, filters)
+					request := provider.NewRequest(filters)
 					var matching dataprovider.Record
 					if t.cache != nil {
 						ctx := context.TODO()

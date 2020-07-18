@@ -20,22 +20,21 @@ func NewExtractor(metadata *common.Metadata) (Extractor, error) {
 
 // Extract reads a
 func (e *Extractor) Extract(dataSourceName string, records chan<- []interface{}) {
-	dataSource, ok := e.metadata.Extract.PrimaryDataSources[dataSourceName]
-	if !ok {
-		log.Print(fmt.Errorf("dataSource %v not found in metadata", dataSourceName))
-	}
-	provider, err := dataprovider.NewDataProvider(dataSource.Driver)
+	provider, err := dataprovider.GetDataProviderFromDataSource(e.metadata, dataSourceName, true)
 	if err != nil {
-		log.Print(fmt.Errorf("error creating dataprovider for driver %v", dataSource.Driver))
+		log.Print(err)
+		return
 	}
-	err = provider.Connect(dataSource.ConnectionString, dataSource.ObjectIdentifier, dataSource.Fields, dataprovider.ConnectionModeRead)
+	err = provider.Connect(dataprovider.ConnectionModeRead)
 	if err != nil {
 		log.Print(fmt.Errorf("error connecting to datasource %v: %v", dataSourceName, err))
 	}
-	request := dataprovider.NewRequest(dataSource.ObjectIdentifier, nil)
+	request := provider.NewRequest(nil)
+
 	err = provider.Stream(request, records)
 	if err != nil {
 		log.Print(fmt.Errorf("error streaming datasource %v: %v", dataSourceName, err))
+	} else {
+		log.Printf("extraction for datasource %v finished successfully", dataSourceName)
 	}
-	log.Printf("extraction for datasource %v finished successfully", dataSourceName)
 }
