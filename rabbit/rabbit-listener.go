@@ -17,7 +17,7 @@ type Consumer struct {
 }
 
 // Handle is a function that keeps listening for messages in a rabbit mq excahnge and performs and action
-type Handle func(deliveries <-chan amqp.Delivery, done chan error)
+type Handle func(deliveries <-chan amqp.Delivery)
 
 // NewConsumer creates a rabbitmq consumer
 func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string) (*Consumer, error) {
@@ -88,8 +88,7 @@ func (c *Consumer) Consume(handle Handle) error {
 	if err != nil {
 		return fmt.Errorf("Queue Consume: %s", err)
 	}
-	go handle(deliveries, c.Done)
-
+	handle(deliveries)
 	return nil
 }
 
