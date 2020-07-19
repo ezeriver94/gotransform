@@ -36,6 +36,9 @@ func NewTransformer(metadata *common.Metadata, cache *cache.Cache) (Transformer,
 		sync:          sync.Mutex{},
 	}, nil
 }
+func (t *Transformer) join() {
+
+}
 
 // Transform applies transformation rules to input fields of a datasource
 func (t *Transformer) Transform(transformationName string, dataSourceFields map[string]interface{}) (*Transformed, error) {
