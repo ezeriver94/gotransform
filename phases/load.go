@@ -3,6 +3,7 @@ package phases
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/ezeriver94/gotransform/common"
 	"github.com/ezeriver94/gotransform/dataprovider"
@@ -10,18 +11,24 @@ import (
 
 // Loader handles loading data to a destination
 type Loader struct {
-	metadata *common.Metadata
+	metadata  *common.Metadata
+	records   map[string]chan dataprovider.Record
+	wait      sync.WaitGroup
+	providers map[string]dataprovider.DataProvider
 }
 
 // NewLoader creates a loader using the passed metadata
 func NewLoader(metadata *common.Metadata) (Loader, error) {
-	return Loader{metadata: metadata}, nil
+	return Loader{
+		metadata:  metadata,
+		records:   make(map[string]chan dataprovider.Record),
+		wait:      sync.WaitGroup{},
+		providers: make(map[string]dataprovider.DataProvider),
+	}, nil
 }
 
-// Load the transformed data to a data endpoint
-func (l *Loader) Load(transforms <-chan Transformed) error {
-	providers := make(map[string]dataprovider.DataProvider)
-	records := make(chan dataprovider.Record)
+// Initialize begins the saving of every provider that acts as a destination
+func (l *Loader) Initialize() error {
 	for key, target := range l.metadata.Load {
 		provider, err := dataprovider.NewDataProvider(target.DataEndpoint)
 		if err != nil {
@@ -31,24 +38,47 @@ func (l *Loader) Load(transforms <-chan Transformed) error {
 		if err != nil {
 			return fmt.Errorf("error connecting to driver %v for target %v: %v", target.Driver, key, err)
 		}
-		providers[key] = provider
-		go provider.Save(records)
-	}
-Loop:
-	for {
-		select {
-		case transformedRecord, more := <-transforms:
-			records <- transformedRecord.Record
-			if !more {
-				break Loop
-			}
+		l.providers[key] = provider
+		if _, ok := l.records[target.TransformationName]; !ok {
+			l.records[target.TransformationName] = make(chan dataprovider.Record)
 		}
-		return nil
+		l.wait.Add(1)
+		go l.startSaving(provider, target)
 	}
-	close(records)
-	for key, provider := range providers {
+	return nil
+}
+
+func (l *Loader) startSaving(provider dataprovider.DataProvider, target common.DataDestination) error {
+	defer l.wait.Done()
+	provider.Save(l.records[target.TransformationName])
+	return nil
+}
+
+// Load the transformed data to a data endpoint
+func (l *Loader) Load(record Transformed) {
+	l.records[record.TransformationName] <- record.Record
+}
+
+// Finish closes the loading channels and wait for every provider to finish writing
+func (l *Loader) Finish() error {
+
+	transformations := make(map[string]interface{}, len(l.metadata.Load))
+	for _, target := range l.metadata.Load {
+		transformationName := target.TransformationName
+		if _, ok := transformations[transformationName]; !ok {
+			log.Printf("closing channel for transformation %v", transformationName)
+			close(l.records[transformationName])
+			transformations[transformationName] = nil
+		}
+	}
+	log.Print("waiting for providers to finish their work")
+	l.wait.Wait()
+	log.Print("providers finished working; proceeding to close providers")
+	for key := range l.metadata.Load {
+		provider := l.providers[key]
 		log.Printf("closing provider %v", key)
 		provider.Close()
 	}
+
 	return nil
 }

@@ -5,6 +5,7 @@ go 1.14
 require (
 	cloud.google.com/go v0.61.0 // indirect
 	github.com/VictoriaMetrics/fastcache v1.5.7
+	github.com/beevik/guid v0.0.0-20170504223318-d0ea8faecee0 // indirect
 	github.com/go-redis/cache/v8 v8.0.0-beta.11
 	github.com/go-redis/redis/v8 v8.0.0-beta.6
 	github.com/googleapis/gax-go v1.0.3 // indirect

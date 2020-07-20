@@ -71,12 +71,17 @@ type FieldPadding struct {
 
 // Field represents the attributes of a field of the Metadata
 type Field struct {
-	Name         string       `yaml:"name"`
-	ExpectedType string       `yaml:"type"`
-	FixedLength  int          `yaml:"fixedlength"`
-	MaxLength    int          `yaml:"maxlength"`
-	EndCharacter string       `yaml:"endchar"`
-	Padding      FieldPadding `yaml:"padding"`
+	Name         string       `yaml:"name" json:"name"`
+	ExpectedType string       `yaml:"type" json:"type"`
+	FixedLength  int          `yaml:"fixedlength" json:"fixedlength"`
+	MaxLength    int          `yaml:"maxlength" json:"maxlength"`
+	EndCharacter string       `yaml:"endchar" json:"endchar"`
+	Padding      FieldPadding `yaml:"padding" json:"padding"`
+}
+
+// MarshalText returns the marshaled value of a field
+func (f Field) MarshalText() (text []byte, err error) {
+	return []byte(f.Name), nil
 }
 
 // Extract contains primary datasources (which are fully read and cannot be related to each others) and aditional datasources (used on join clauses on transformations)

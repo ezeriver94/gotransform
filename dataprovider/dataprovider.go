@@ -9,8 +9,8 @@ import (
 
 // Request contains the information needed for the dataprovider to fetch data
 type Request struct {
-	ObjectID string
-	Filters  map[common.Field]interface{}
+	ObjectID string                       `json:"objectID"`
+	Filters  map[common.Field]interface{} `json:"filters"`
 }
 
 // Record represents a single row which

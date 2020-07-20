@@ -1,16 +1,14 @@
 package phases
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
-	"time"
 
+	"github.com/ezeriver94/gotransform/cache"
 	"github.com/ezeriver94/gotransform/common"
 	"github.com/ezeriver94/gotransform/dataprovider"
-	"github.com/go-redis/cache/v8"
 )
 
 // Transformed is the result of a transformation applied
@@ -22,13 +20,13 @@ type Transformed struct {
 // Transformer handles transformations of an ETL job
 type Transformer struct {
 	metadata      *common.Metadata
-	cache         *cache.Cache
+	cache         *cache.KeyValueCache
 	dataProviders map[string]dataprovider.DataProvider
 	sync          sync.Mutex
 }
 
 // NewTransformer creates a transformer using the passed metadata
-func NewTransformer(metadata *common.Metadata, cache *cache.Cache) (Transformer, error) {
+func NewTransformer(metadata *common.Metadata, cache *cache.KeyValueCache) (Transformer, error) {
 	return Transformer{
 		metadata:      metadata,
 		cache:         cache,
@@ -42,37 +40,20 @@ func (t *Transformer) fetchJoin(
 	dataSourceName string,
 ) (dataprovider.Record, error) {
 
-	var result dataprovider.Record
-	var err error
-
 	request := provider.NewRequest(filters)
-	if t.cache != nil {
-		ctx := context.TODO()
-		cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
+	cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
 
-		if err := t.cache.Get(ctx, cacheKey, &result); err != nil {
-			log.Printf("cache miss for key %v. fetching data", cacheKey)
-			result, err = provider.Fetch(request)
-			if err != nil {
-				return nil, err
-			}
-			log.Printf("saving key %v with value %v in cache", cacheKey, result)
-			if err := t.cache.Set(&cache.Item{
-				Ctx:   ctx,
-				Key:   cacheKey,
-				Value: result,
-				TTL:   time.Hour,
-			}); err != nil {
-				return nil, fmt.Errorf("error saving on cache %v", err)
-			}
-		} else {
-			log.Printf("cache hit for key %v", cacheKey)
-		}
-	} else {
-		result, err = provider.Fetch(request)
-		if err != nil {
-			return nil, err
-		}
+	fetchRequest := func() (interface{}, error) {
+		return provider.Fetch(request)
+	}
+	stringResult, err := t.cache.Retrieve(cacheKey, fetchRequest)
+	if err != nil {
+		return nil, fmt.Errorf("error finding join value: %v", err)
+	}
+	var result dataprovider.Record
+	err = json.Unmarshal([]byte(stringResult), &result)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing value %v", stringResult)
 	}
 	return result, nil
 }
@@ -133,8 +114,7 @@ func (t *Transformer) join(
 		var (
 			existingDataSourceName  string
 			existingDataSourceField string
-			// pendingDataSourceName   string
-			pendingDataSourceField string
+			pendingDataSourceField  string
 		)
 		if join.To != targetName && join.To != sourceName {
 			return nil, fmt.Errorf("wrong join OnClause definition; neither one of the sources of the clause %v matches the target of the join %v", onClause, join.To)
@@ -161,7 +141,7 @@ func (t *Transformer) join(
 			filters[field] = joins[existingDataSourceName][existingDataSourceField]
 		}
 	}
-
+	log.Printf("trying to join %v using %v filters", join.To, common.PrettyPrint(filters))
 	joinedRecord, err := t.fetchJoin(provider, filters, dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching join record: %v", err)

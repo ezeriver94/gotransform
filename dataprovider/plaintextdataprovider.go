@@ -4,14 +4,22 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 
+	"github.com/beevik/guid"
 	"github.com/ezeriver94/gotransform/common"
 )
+
+// Fetched represents a key value struct with a record obtained by filtering some request which transformed to string returns "key"
+type Fetched struct {
+	key   string
+	value Record
+}
 
 // PlainTextDataProvider is a dataprovider that can interact with text files, encoded in plain text
 type PlainTextDataProvider struct {
@@ -20,11 +28,15 @@ type PlainTextDataProvider struct {
 	fields   []common.Field
 	file     *os.File
 	regexp   *regexp.Regexp
+
+	found    chan Fetched
+	requests []Request
 }
 
 func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 	regex := "^"
 	var err error = nil
+
 	for _, field := range fields {
 		if field.FixedLength > 0 {
 			regex += fmt.Sprintf("(.{%v})", field.FixedLength)
@@ -51,6 +63,8 @@ func NewPlainTextDataProvider(dataEndpoint common.DataEndpoint) (*PlainTextDataP
 		filePath: dataEndpoint.ConnectionString,
 		fields:   dataEndpoint.Fields,
 		objectID: dataEndpoint.ObjectIdentifier,
+		found:    make(chan Fetched),
+		requests: make([]Request, 0),
 	}
 
 	regex, err := getRegexp(dataEndpoint.Fields)
@@ -157,33 +171,150 @@ func (r *Record) toString(fields common.Fields) (string, error) {
 	return result, nil
 }
 
+func (dp *PlainTextDataProvider) beginQuest() {
+	pool := sync.Pool{}
+
+	for {
+		select {
+		case _, more := <-dp.found:
+			if !more {
+				break
+			}
+		default:
+		}
+		for len(dp.requests) > 0 {
+
+		}
+	}
+}
+
+func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string, channel chan (string)) {
+	file, err := os.Open(fileName)
+	defer file.Close()
+
+	if err != nil {
+		panic(err)
+	}
+
+	// Move the pointer of the file to the start of designated chunk.
+	file.Seek(offset, 0)
+	reader := bufio.NewReader(file)
+
+	// This block of code ensures that the start of chunk is a new word. If
+	// a character is encountered at the given position it moves a few bytes till
+	// the end of the word.
+	if offset != 0 {
+		_, err = reader.ReadBytes(' ')
+		if err == io.EOF {
+			fmt.Println("EOF")
+			return
+		}
+
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	var cummulativeSize int64
+	for {
+		// Break if read size has exceed the chunk size.
+		if cummulativeSize > limit {
+			break
+		}
+
+		b, err := reader.ReadBytes('\n')
+
+		// Break if end of file is encountered.
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			panic(err)
+		}
+
+		cummulativeSize += int64(len(b))
+		s := string(b)
+		parsed, err := dp.parseRecord(s)
+		if err != nil {
+			log.Print(fmt.Errorf("error parsing record %v, %v", s, err))
+			continue
+		}
+		for _, req := range dp.requests {
+			matches := true
+			for filterField, filterValue := range req.Filters {
+				matches = matches && string(parsed[filterField]) == fieldToString(filterValue)
+			}
+			if matches {
+				var record Record
+				log.Printf("record %v matches filter of %v; join ended", parsed, req)
+				for _, field := range dp.fields {
+					validated, err := field.Validate(parsed[field])
+					if err != nil {
+						log.Print(fmt.Errorf("found matching record on line %v but reached error validating record: %v", s, err))
+					}
+					record[field.Name] = validated
+				}
+				dp.found <- Fetched{
+					key:   req.ToString(),
+					value: record,
+				}
+				// dp.requests
+				break
+			} else {
+				log.Printf("record %v dont matches filter of %v", parsed, req)
+			}
+		}
+
+		// if s != "" {
+		// 	// Send the read word in the channel to enter into dictionary.
+		// 	channel <- s
+		// }
+	}
+}
+
 // Fetch finds a single value in the file which matches the filters in the request object and returns it if exists
 func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
+	guid := guid.NewString()
+
 	scanner := bufio.NewScanner(dp.file)
 	result := make(Record)
 	var matches bool
 	line := 0
+	log.Printf("GUID %v: starting search for %v by scanning file %v", r, guid, dp.filePath)
+
 	for scanner.Scan() {
 		line++
 		text := scanner.Text()
+		log.Printf("GUID %v: does %v matches %v ?", guid, text, r)
 		parsed, err := dp.parseRecord(text)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing record %v, %v", text, err)
+			return nil, fmt.Errorf("GUID %v: error parsing record %v, %v", guid, text, err)
 		}
 		matches = true
 		for filterField, filterValue := range r.Filters {
 			matches = matches && string(parsed[filterField]) == fieldToString(filterValue)
 		}
 		if matches {
+			log.Printf("GUID %v: record %v matches filter of %v; join ended", guid, parsed, r)
 			for _, field := range dp.fields {
 				validated, err := field.Validate(parsed[field])
 				if err != nil {
-					return nil, fmt.Errorf("found matching record on line %v but reached error validating record: %v", line, err)
+					return nil, fmt.Errorf("GUID %v: found matching record on line %v but reached error validating record: %v", guid, line, err)
 				}
 				result[field.Name] = validated
 			}
 			break
+		} else {
+			log.Printf("GUID %v: record %v dont matches filter of %v", guid, parsed, r)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("GUID %v: error scanning file: %v", guid, err)
+	}
+
+	if !matches {
+		log.Printf("GUID %v: no record matches with filter %v", guid, r)
 	}
 	return result, nil
 }
@@ -226,19 +357,23 @@ func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) 
 
 // Save writes the data sent into de buffer to the connection
 func (dp *PlainTextDataProvider) Save(buffer <-chan Record) error {
-	// writer := bufio.NewWriter(dp.file)
 	for {
 		select {
-		case record := <-buffer:
-			strRecord, err := record.toString(dp.fields)
-			if err != nil {
-				log.Print(fmt.Errorf("error building string line from record: %v", err))
+		case record, more := <-buffer:
+			if record != nil {
+				strRecord, err := record.toString(dp.fields)
+				if err != nil {
+					log.Print(fmt.Errorf("error building string line from record: %v", err))
+				}
+				n, err := fmt.Fprintln(dp.file, strRecord)
+				if err != nil {
+					log.Print(fmt.Errorf("error writing line %v to file: %v", strRecord, err))
+				}
+				log.Printf("printed %v bytes to file ", n)
 			}
-			n, err := fmt.Fprintln(dp.file, strRecord)
-			if err != nil {
-				log.Print(fmt.Errorf("error writing line %v to file: %v", strRecord, err))
+			if !more {
+				return nil
 			}
-			log.Printf("printed %v bytes to file ", n)
 		}
 	}
 }
