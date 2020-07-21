@@ -33,11 +33,11 @@ type PlainTextDataProvider struct {
 	questStarted bool
 	lock         sync.Mutex
 	found        chan Fetched
-	requests     []Request
+	requests     common.Set
 }
 
 func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
-	regex := "^"
+	regex := ""
 	var err error = nil
 
 	for _, field := range fields {
@@ -55,7 +55,7 @@ func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
-	regex += "$"
+	regex += ""
 	result, err := regexp.Compile(regex)
 	return result, err
 }
@@ -69,7 +69,7 @@ func NewPlainTextDataProvider(dataEndpoint common.DataEndpoint) (*PlainTextDataP
 		found:    make(chan Fetched),
 		closed:   false,
 		lock:     sync.Mutex{},
-		requests: make([]Request, 0),
+		requests: common.NewSet(),
 	}
 
 	regex, err := getRegexp(dataEndpoint.Fields)
@@ -184,32 +184,41 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 	}
 
 	averageSize := (dp.fields.MaxLength() - dp.fields.MinLength()) / 2
-	approximateLines := fileInfo.Size() / int64(averageSize)
-	linesPerThread := int64(math.Max(50, float64(approximateLines)))
+	approximateLines := float64(fileInfo.Size() / int64(averageSize))
+	linesPerThread := math.Max(50, float64(approximateLines))
 
 	// Limit signifies the chunk size of file to be processed by every thread.
-	var limit int64 = linesPerThread * int64(dp.fields.MaxLength())
+	var limit int64 = int64(linesPerThread * float64(dp.fields.MaxLength()))
 
-	// Current signifies the counter for bytes of the file.
-	var current int64
-	threads := approximateLines / linesPerThread
+	threads := int(math.Ceil(approximateLines / linesPerThread))
+
 	for {
-		if len(dp.requests) > 0 {
+		if dp.requests.Length() > 0 {
+			// Current signifies the counter for bytes of the file.
+			var current int64
 
+			pendingRequests := dp.requests.Items()
 			wait := sync.WaitGroup{}
-			for i := int64(0); i < threads; i++ {
+			for i := 0; i < threads; i++ {
 				wait.Add(1)
-
 				go func() {
 					dp.read(current, limit, dp.filePath, i == threads-1)
 					fmt.Printf("%d thread has been completed \n", i)
 					wait.Done()
 				}()
-				wait.Wait()
 				// Increment the current by 1+(last byte read by previous thread).
 				current += limit + 1
 			}
 			wait.Wait()
+			for _, r := range pendingRequests {
+				if dp.requests.IsTheSame(r) {
+					req := (*r).(Request)
+					log.Printf("removing request %v because it was not found; returning null value", req.ToString())
+					dp.found <- Fetched{key: req.ToString(), value: nil}
+					dp.requests.Remove(*r)
+
+				}
+			}
 		} else {
 			if dp.closed {
 				break
@@ -260,22 +269,31 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 		if err != nil && err != io.EOF {
 			panic(err)
 		}
-
+		if len(b) == 0 {
+			continue
+		}
 		cummulativeSize += int64(len(b))
+		if b[len(b)-1] == '\n' {
+			b = b[:len(b)-1]
+		}
 		s := string(b)
+
 		parsed, err := dp.parseRecord(s)
 		if err != nil {
 			log.Print(fmt.Errorf("error parsing record %v, %v", s, err))
 			continue
 		}
-		for i, req := range dp.requests {
+		for _, req := range dp.requests.Items() {
+
+			request := (*req).(Request)
+
 			matches := true
-			for filterField, filterValue := range req.Filters {
+			for filterField, filterValue := range request.Filters {
 				matches = matches && string(parsed[filterField]) == fieldToString(filterValue)
 			}
 			if matches {
-				var record Record
-				log.Printf("record %v matches filter of %v; join ended", parsed, req)
+				record := make(Record)
+				log.Printf("record %v matches filter of %v; join ended", parsed, request)
 				for _, field := range dp.fields {
 					validated, err := field.Validate(parsed[field])
 					if err != nil {
@@ -284,20 +302,15 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 					record[field.Name] = validated
 				}
 				dp.found <- Fetched{
-					key:   req.ToString(),
+					key:   request.ToString(),
 					value: record,
 				}
-				dp.requests = append(dp.requests[:i], dp.requests[i+1:]...)
+				dp.requests.Remove(request)
 				break
 			} else {
 				log.Printf("record %v dont matches filter of %v", parsed, req)
 			}
 		}
-
-		// if s != "" {
-		// 	// Send the read word in the channel to enter into dictionary.
-		// 	channel <- s
-		// }
 	}
 }
 
@@ -311,7 +324,7 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 		dp.questStarted = true
 		dp.lock.Unlock()
 	}
-	dp.requests = append(dp.requests, r)
+	dp.requests.Add(r)
 	select {
 	case result := <-dp.found:
 		if result.key == r.ToString() {

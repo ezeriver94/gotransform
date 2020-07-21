@@ -112,3 +112,12 @@ func (r *Request) ToString() string {
 	}
 	return fmt.Sprintf("%v->%v", r.ObjectID, filters)
 }
+
+// HashCode returns a hashcode for a request
+func (r Request) HashCode() string {
+	var result string
+	for field, value := range r.Filters {
+		result += field.Name + "=" + fmt.Sprint(value) + "#"
+	}
+	return result
+}
