@@ -137,3 +137,28 @@ func (f Fields) Find(name string) (Field, error) {
 	var result Field
 	return result, fmt.Errorf("field %v not found", name)
 }
+
+// MaxLength calculates the max length of a single record by iterating the field array
+func (f Fields) MaxLength() int {
+	result := 0
+	for _, f := range f {
+		if f.MaxLength > 0 {
+			result += f.MaxLength
+		} else {
+			result += f.FixedLength
+		}
+
+	}
+	return result
+}
+
+// MinLength calculates the min length of a single record by iterating the field array
+func (f Fields) MinLength() int {
+	result := 0
+	for _, f := range f {
+		if f.FixedLength > 0 {
+			result += f.FixedLength
+		}
+	}
+	return result
+}
