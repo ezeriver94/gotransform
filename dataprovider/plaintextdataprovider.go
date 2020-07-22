@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/beevik/guid"
 	"github.com/ezeriver94/gotransform/common"
 )
 
@@ -46,7 +48,7 @@ func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 		} else if field.MaxLength > 0 && len(field.EndCharacter) == 1 {
 			regex += fmt.Sprintf("(?:([^%v]{%v})|(?:([^%v]{0,%v})%v))", field.EndCharacter, field.MaxLength, field.EndCharacter, field.MaxLength-1, field.EndCharacter)
 		} else {
-			log.Print(fmt.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name))
+			log.Errorf(("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
 			if err == nil {
 				err = errors.New("error on one or more dataEndpoint fields")
 			}
@@ -192,6 +194,8 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 
 	threads := int(math.Ceil(approximateLines / linesPerThread))
 
+	log.Debugf("read of file %v begins: averageSize: %v - approximateLines: %v - linesPerThread: %v - limit: %v - threads: %v", dp.filePath, averageSize, approximateLines, linesPerThread, limit, threads)
+
 	for {
 		if dp.requests.Length() > 0 {
 			// Current signifies the counter for bytes of the file.
@@ -201,11 +205,11 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 			wait := sync.WaitGroup{}
 			for i := 0; i < threads; i++ {
 				wait.Add(1)
-				go func() {
-					dp.read(current, limit, dp.filePath, i == threads-1)
+				go func(start, limit int64, file string, isLast bool) {
+					dp.read(start, limit, file, isLast)
 					fmt.Printf("%d thread has been completed \n", i)
 					wait.Done()
-				}()
+				}(current, limit, dp.filePath, i == threads-1)
 				// Increment the current by 1+(last byte read by previous thread).
 				current += limit + 1
 			}
@@ -213,7 +217,7 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 			for _, r := range pendingRequests {
 				if dp.requests.IsTheSame(r) {
 					req := (*r).(Request)
-					log.Printf("removing request %v because it was not found; returning null value", req.ToString())
+					log.Infof("removing request %v because it was not found; returning null value", req.ToString())
 					dp.found <- Fetched{key: req.ToString(), value: nil}
 					dp.requests.Remove(*r)
 
@@ -280,7 +284,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 
 		parsed, err := dp.parseRecord(s)
 		if err != nil {
-			log.Print(fmt.Errorf("error parsing record %v, %v", s, err))
+			log.Errorf("error parsing record %v, %v", s, err)
 			continue
 		}
 		for _, req := range dp.requests.Items() {
@@ -293,14 +297,16 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 			}
 			if matches {
 				record := make(Record)
-				log.Printf("record %v matches filter of %v; join ended", parsed, request)
+				log.Infof("record %v matches filter of %v; join ended", parsed, request)
 				for _, field := range dp.fields {
 					validated, err := field.Validate(parsed[field])
 					if err != nil {
-						log.Print(fmt.Errorf("found matching record on line %v but reached error validating record: %v", s, err))
+						log.Errorf("found matching record on line %v but reached error validating record: %v", s, err)
 					}
 					record[field.Name] = validated
 				}
+				recordString, _ := record.toString(dp.fields)
+				log.Debugf("returning record %v for request %v", recordString, request.ToString())
 				dp.found <- Fetched{
 					key:   request.ToString(),
 					value: record,
@@ -308,7 +314,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				dp.requests.Remove(request)
 				break
 			} else {
-				log.Printf("record %v dont matches filter of %v", parsed, req)
+				log.Debugf("record %v dont matches filter of %v", parsed, req)
 			}
 		}
 	}
@@ -316,18 +322,24 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 
 // Fetch finds a single value in the file which matches the filters in the request object and returns it if exists
 func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
+	guid := guid.NewString()
+	log.Debugf("GUID %v: initialized guid %v for request %v", guid, guid, r.HashCode())
 	if !dp.questStarted {
 		dp.lock.Lock()
 		if !dp.questStarted {
+			log.Infof("GUID %v: begining quest for file %v", guid, dp.filePath)
 			go dp.beginQuest()
 		}
 		dp.questStarted = true
 		dp.lock.Unlock()
 	}
 	dp.requests.Add(r)
+	log.Debugf("GUID %v: waiting for result to arrive", guid)
 	select {
 	case result := <-dp.found:
 		if result.key == r.ToString() {
+			resultString, _ := result.value.toString(dp.fields)
+			log.Debugf("GUID %v: arrived result %v!!", guid, resultString)
 			return result.value, nil
 		}
 	}
@@ -340,7 +352,7 @@ func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer
 	}
 	parsed, err := dp.parseRecord(record)
 	if err != nil {
-		log.Print(fmt.Errorf("error parsing record %v, %v", record, err))
+		log.Errorf("error parsing record %v, %v", record, err)
 		return
 	}
 	matches := true
@@ -378,13 +390,13 @@ func (dp *PlainTextDataProvider) Save(buffer <-chan Record) error {
 			if record != nil {
 				strRecord, err := record.toString(dp.fields)
 				if err != nil {
-					log.Print(fmt.Errorf("error building string line from record: %v", err))
+					log.Errorf("error building string line from record: %v", err)
 				}
 				n, err := fmt.Fprintln(dp.file, strRecord)
 				if err != nil {
-					log.Print(fmt.Errorf("error writing line %v to file: %v", strRecord, err))
+					log.Errorf("error writing line %v to file: %v", strRecord, err)
 				}
-				log.Printf("printed %v bytes to file ", n)
+				log.Debugf("printed %v bytes to file ", n)
 			}
 			if !more {
 				return nil

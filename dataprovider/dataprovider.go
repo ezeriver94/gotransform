@@ -2,7 +2,8 @@ package dataprovider
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/ezeriver94/gotransform/common"
 )
@@ -59,7 +60,7 @@ func GetDataProviderFromDataSource(metadata *common.Metadata, dataSourceName str
 
 	result, err := NewDataProvider(dataSource)
 	if err != nil {
-		log.Print(fmt.Errorf("error creating dataprovider for driver %v", dataSource.Driver))
+		log.Errorf("error creating dataprovider for driver %v", dataSource.Driver)
 	}
 	return result, nil
 }

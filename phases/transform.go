@@ -3,8 +3,9 @@ package phases
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/ezeriver94/gotransform/cache"
 	"github.com/ezeriver94/gotransform/common"

@@ -2,7 +2,8 @@ package rabbit
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/streadway/amqp"
 )

@@ -2,7 +2,8 @@ package phases
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/ezeriver94/gotransform/common"
 	"github.com/ezeriver94/gotransform/dataprovider"

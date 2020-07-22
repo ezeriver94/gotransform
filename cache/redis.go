@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/go-redis/cache/v8"
@@ -53,7 +54,7 @@ func (kv *KeyValueCache) Retrieve(key string, get func() (interface{}, error)) (
 		ctx := context.TODO()
 		var result interface{}
 		if err = kv.cache.Get(ctx, key, &result); err != nil {
-			log.Printf("cache miss for key %v. fetching data", key)
+			log.Debugf("cache miss for key %v. fetching data", key)
 
 			result, err = get()
 			if err != nil {
@@ -64,15 +65,18 @@ func (kv *KeyValueCache) Retrieve(key string, get func() (interface{}, error)) (
 				return "", err
 			}
 
-			log.Printf("saving key %v with value %v in cache", key, stringResult)
+			log.Debugf("saving key %v with value %v in cache", key, stringResult)
 			if err := kv.cache.Set(&cache.Item{
 				Ctx:   ctx,
 				Key:   key,
 				Value: stringResult,
 				TTL:   time.Hour,
 			}); err != nil {
-				log.Print(fmt.Errorf("error saving on cache %v", err))
+				log.Errorf("error saving on cache %v", err)
+			} else {
+				log.Debugf("cache key %v saved successfully", key)
 			}
+
 		}
 	} else {
 		result, err := get()
