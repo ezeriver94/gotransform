@@ -51,6 +51,7 @@ func (t *Transformer) fetchJoin(
 	if err != nil {
 		return nil, fmt.Errorf("error finding join value: %v", err)
 	}
+	log.Infof("found join value for join %v: %v", request, stringResult)
 	var result dataprovider.Record
 	err = json.Unmarshal([]byte(stringResult), &result)
 	if err != nil {
@@ -129,7 +130,7 @@ func (t *Transformer) join(
 			existingDataSourceField = targetField
 			pendingDataSourceField = sourceField
 		} else {
-			log.Printf("could not find %v on existing joins; cant perform join %v. leaving join for now", sourceName, join.To)
+			log.Debugf("could not find %v on existing joins; cant perform join %v. leaving join for now", sourceName, join.To)
 			return joins, nil
 		}
 		field, err := targetJoin.Fields.Find(pendingDataSourceField)
@@ -142,7 +143,7 @@ func (t *Transformer) join(
 			filters[field] = joins[existingDataSourceName][existingDataSourceField]
 		}
 	}
-	log.Printf("trying to join %v using %v filters", join.To, common.PrettyPrint(filters))
+	log.Debugf("trying to join %v using %v filters", join.To, common.PrettyPrint(filters))
 	joinedRecord, err := t.fetchJoin(provider, filters, dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching join record: %v", err)

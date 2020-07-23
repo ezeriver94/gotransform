@@ -14,7 +14,7 @@ func Publish(channel *amqp.Channel, exchange, routingKey string, body []byte, re
 	// Reliable publisher confirms require confirm.select support from the
 	// connection.
 	if reliable {
-		log.Printf("enabling publishing confirms.")
+		log.Debug("enabling publishing confirms.")
 		if err := channel.Confirm(false); err != nil {
 			return fmt.Errorf("Channel could not be put into confirm mode: %s", err)
 		}
@@ -24,7 +24,7 @@ func Publish(channel *amqp.Channel, exchange, routingKey string, body []byte, re
 		defer confirmOne(confirms)
 	}
 
-	log.Printf("publishing %dB body (%q)", len(body), body)
+	log.Infof("publishing %dB body (%v)", len(body), string(body))
 	if err := channel.Publish(
 		exchange,   // publish to an exchange
 		routingKey, // routing to 0 or more queues
@@ -50,11 +50,11 @@ func Publish(channel *amqp.Channel, exchange, routingKey string, body []byte, re
 // set of unacknowledged sequence numbers and loop until the publishing channel
 // is closed.
 func confirmOne(confirms <-chan amqp.Confirmation) {
-	log.Printf("waiting for confirmation of one publishing")
+	log.Debugf("waiting for confirmation of one publishing")
 
 	if confirmed := <-confirms; confirmed.Ack {
-		log.Printf("confirmed delivery with delivery tag: %d", confirmed.DeliveryTag)
+		log.Infof("confirmed delivery with delivery tag: %d", confirmed.DeliveryTag)
 	} else {
-		log.Printf("failed delivery of delivery tag: %d", confirmed.DeliveryTag)
+		log.Errorf("failed delivery of delivery tag: %d", confirmed.DeliveryTag)
 	}
 }

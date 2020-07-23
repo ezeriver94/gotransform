@@ -32,7 +32,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 
 	var err error
 
-	log.Printf("got Channel, declaring Exchange (%q)", exchange)
+	log.Infof("got Channel, declaring Exchange (%q)", exchange)
 	if err = c.channel.ExchangeDeclare(
 		exchange,     // name of the exchange
 		exchangeType, // type
@@ -45,7 +45,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Exchange Declare: %s", err)
 	}
 
-	log.Printf("declared Exchange, declaring Queue %q", queueName)
+	log.Infof("declared Exchange, declaring Queue %q", queueName)
 	queue, err := c.channel.QueueDeclare(
 		queueName, // name of the queue
 		true,      // durable
@@ -58,7 +58,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Queue Declare: %s", err)
 	}
 
-	log.Printf("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
+	log.Infof("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
 		queue.Name, queue.Messages, queue.Consumers, key)
 
 	if err = c.channel.QueueBind(
@@ -76,7 +76,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 
 // Consume starts listening for messages in a consumer by the execution of the handle function
 func (c *Consumer) Consume(handle Handle) error {
-	log.Printf("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
+	log.Infof("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
 	deliveries, err := c.channel.Consume(
 		c.queue, // name
 		c.tag,   // consumerTag,
@@ -104,7 +104,7 @@ func (c *Consumer) Shutdown() error {
 		return fmt.Errorf("AMQP connection close error: %s", err)
 	}
 
-	defer log.Printf("AMQP shutdown OK")
+	defer log.Infof("AMQP shutdown OK")
 
 	// wait for handle() to exit
 	return <-c.Done

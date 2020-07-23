@@ -67,17 +67,17 @@ func (l *Loader) Finish() error {
 	for _, target := range l.metadata.Load {
 		transformationName := target.TransformationName
 		if _, ok := transformations[transformationName]; !ok {
-			log.Printf("closing channel for transformation %v", transformationName)
+			log.Infof("closing channel for transformation %v", transformationName)
 			close(l.records[transformationName])
 			transformations[transformationName] = nil
 		}
 	}
-	log.Print("waiting for providers to finish their work")
+	log.Infof("waiting for providers to finish their work")
 	l.wait.Wait()
-	log.Print("providers finished working; proceeding to close providers")
+	log.Infof("providers finished working; proceeding to close providers")
 	for key := range l.metadata.Load {
 		provider := l.providers[key]
-		log.Printf("closing provider %v", key)
+		log.Infof("closing provider %v", key)
 		provider.Close()
 	}
 

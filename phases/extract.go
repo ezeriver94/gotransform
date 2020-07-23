@@ -37,7 +37,7 @@ func (e *Extractor) Extract(dataSourceName string, records chan<- []interface{})
 	if err != nil {
 		return fmt.Errorf("error streaming datasource %v: %v", dataSourceName, err)
 	}
-	log.Printf("extraction for datasource %v finished successfully", dataSourceName)
+	log.Infof("extraction for datasource %v finished successfully", dataSourceName)
 	return nil
 
 }

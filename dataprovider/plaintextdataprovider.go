@@ -48,7 +48,7 @@ func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 		} else if field.MaxLength > 0 && len(field.EndCharacter) == 1 {
 			regex += fmt.Sprintf("(?:([^%v]{%v})|(?:([^%v]{0,%v})%v))", field.EndCharacter, field.MaxLength, field.EndCharacter, field.MaxLength-1, field.EndCharacter)
 		} else {
-			log.Errorf(("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
+			log.Errorf("wrong field definition for %v. must have FixedLength or both MaxLength and EndCharacter", field.Name)
 			if err == nil {
 				err = errors.New("error on one or more dataEndpoint fields")
 			}
@@ -207,7 +207,7 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 				wait.Add(1)
 				go func(start, limit int64, file string, isLast bool) {
 					dp.read(start, limit, file, isLast)
-					fmt.Printf("%d thread has been completed \n", i)
+					log.Debugf("%d thread has been completed \n", i)
 					wait.Done()
 				}(current, limit, dp.filePath, i == threads-1)
 				// Increment the current by 1+(last byte read by previous thread).
@@ -250,7 +250,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 	if offset != 0 {
 		_, err = reader.ReadBytes('\n')
 		if err == io.EOF {
-			fmt.Println("EOF")
+			log.Debug("EOF")
 			return
 		}
 
@@ -299,14 +299,17 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				record := make(Record)
 				log.Infof("record %v matches filter of %v; join ended", parsed, request)
 				for _, field := range dp.fields {
+					log.Debugf("generating field value of %v", field.Name)
 					validated, err := field.Validate(parsed[field])
 					if err != nil {
 						log.Errorf("found matching record on line %v but reached error validating record: %v", s, err)
 					}
+					log.Debugf("value of field %v is %v", field.Name, validated)
 					record[field.Name] = validated
 				}
+				log.Debugf("finished building record for filter %v and value %v", request, parsed)
 				recordString, _ := record.toString(dp.fields)
-				log.Debugf("returning record %v for request %v", recordString, request.ToString())
+				log.Infof("returning record %v for request %v", recordString, request.ToString())
 				dp.found <- Fetched{
 					key:   request.ToString(),
 					value: record,
