@@ -220,7 +220,6 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 					log.Infof("removing request %v because it was not found; returning null value", req.ToString())
 					dp.found <- Fetched{key: req.ToString(), value: nil}
 					dp.requests.Remove(*r)
-
 				}
 			}
 		} else {
@@ -338,15 +337,16 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 	}
 	dp.requests.Add(r)
 	log.Debugf("GUID %v: waiting for result to arrive", guid)
-	select {
-	case result := <-dp.found:
-		if result.key == r.ToString() {
-			resultString, _ := result.value.toString(dp.fields)
-			log.Debugf("GUID %v: arrived result %v!!", guid, resultString)
-			return result.value, nil
+	for {
+		select {
+		case result := <-dp.found:
+			if result.key == r.ToString() {
+				resultString, _ := result.value.toString(dp.fields)
+				log.Infof("GUID %v: arrived result %v for request ", guid, resultString, r)
+				return result.value, nil
+			}
 		}
 	}
-	return nil, nil
 }
 func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer chan<- []interface{}, wait *sync.WaitGroup) {
 	defer wait.Done()

@@ -27,19 +27,20 @@ type Set interface {
 type MapSet struct {
 	entries       sync.Map
 	addEntries    chan *Key
-	removeEntries chan *Key
+	removeEntries chan Key
 }
 
 func NewSet() Set {
 	result := MapSet{
 		entries:       sync.Map{},
 		addEntries:    make(chan *Key),
-		removeEntries: make(chan *Key),
+		removeEntries: make(chan Key),
 	}
 	go result.listen()
 	return &result
 }
 func (m *MapSet) IsTheSame(key *Key) bool {
+	// TODO: llega antes a IsTheSame que al DELETE
 	if result, ok := m.entries.Load((*key).HashCode()); ok {
 		existing := result.(*Key)
 		return existing == key
@@ -52,7 +53,7 @@ func (m *MapSet) listen() {
 		case entry := <-m.addEntries:
 			m.entries.Store((*entry).HashCode(), entry)
 		case entry := <-m.removeEntries:
-			m.entries.Delete((*entry).HashCode())
+			m.entries.Delete(entry.HashCode())
 		}
 	}
 }
@@ -60,7 +61,7 @@ func (m *MapSet) Add(key Key) {
 	m.addEntries <- &key
 }
 func (m *MapSet) Remove(key Key) {
-	m.removeEntries <- &key
+	m.removeEntries <- key
 }
 func (s *MapSet) Exists(key Key) bool {
 	_, ok := s.entries.Load(key)
