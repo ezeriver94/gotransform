@@ -31,11 +31,12 @@ type PlainTextDataProvider struct {
 	file     *os.File
 	regexp   *regexp.Regexp
 
-	closed       bool
-	questStarted bool
-	lock         sync.Mutex
-	found        chan Fetched
-	requests     common.Set
+	closed            bool
+	questStarted      bool
+	questStatusSwitch chan bool
+	lock              sync.Mutex
+	found             chan Fetched
+	requests          common.Set
 }
 
 func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
@@ -65,13 +66,14 @@ func getRegexp(fields []common.Field) (*regexp.Regexp, error) {
 // NewPlainTextDataProvider creates a new plain text data provider from the dataEndpoint information
 func NewPlainTextDataProvider(dataEndpoint common.DataEndpoint) (*PlainTextDataProvider, error) {
 	result := PlainTextDataProvider{
-		filePath: dataEndpoint.ConnectionString,
-		fields:   dataEndpoint.Fields,
-		objectID: dataEndpoint.ObjectIdentifier,
-		found:    make(chan Fetched),
-		closed:   false,
-		lock:     sync.Mutex{},
-		requests: common.NewSet(),
+		filePath:          dataEndpoint.ConnectionString,
+		fields:            dataEndpoint.Fields,
+		objectID:          dataEndpoint.ObjectIdentifier,
+		found:             make(chan Fetched),
+		closed:            false,
+		questStatusSwitch: make(chan bool),
+		lock:              sync.Mutex{},
+		requests:          common.NewSet(),
 	}
 
 	regex, err := getRegexp(dataEndpoint.Fields)
@@ -200,8 +202,6 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 		if dp.requests.Length() > 0 {
 			// Current signifies the counter for bytes of the file.
 			var current int64
-
-			pendingRequests := dp.requests.Items()
 			wait := sync.WaitGroup{}
 			for i := 0; i < threads; i++ {
 				wait.Add(1)
@@ -214,14 +214,7 @@ func (dp *PlainTextDataProvider) beginQuest() error {
 				current += limit + 1
 			}
 			wait.Wait()
-			for _, r := range pendingRequests {
-				if dp.requests.IsTheSame(r) {
-					req := (*r).(Request)
-					log.Infof("removing request %v because it was not found; returning null value", req.ToString())
-					dp.found <- Fetched{key: req.ToString(), value: nil}
-					dp.requests.Remove(*r)
-				}
-			}
+			dp.questStatusSwitch <- true
 		} else {
 			if dp.closed {
 				break
@@ -308,7 +301,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				}
 				log.Debugf("finished building record for filter %v and value %v", request, parsed)
 				recordString, _ := record.toString(dp.fields)
-				log.Infof("returning record %v for request %v", recordString, request.ToString())
+				log.Infof("returning record %v for request %v", recordString, request.HashCode())
 				dp.found <- Fetched{
 					key:   request.ToString(),
 					value: record,
@@ -316,7 +309,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				dp.requests.Remove(request)
 				break
 			} else {
-				log.Debugf("record %v dont matches filter of %v", parsed, req)
+				log.Debugf("record %v dont matches filter of %v", parsed, (*req).HashCode())
 			}
 		}
 	}
@@ -325,7 +318,7 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 // Fetch finds a single value in the file which matches the filters in the request object and returns it if exists
 func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 	guid := guid.NewString()
-	log.Debugf("GUID %v: initialized guid %v for request %v", guid, guid, r.HashCode())
+	log.Infof("GUID %v: initialized guid %v for request %v", guid, guid, r.HashCode())
 	if !dp.questStarted {
 		dp.lock.Lock()
 		if !dp.questStarted {
@@ -337,6 +330,8 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 	}
 	dp.requests.Add(r)
 	log.Debugf("GUID %v: waiting for result to arrive", guid)
+
+	questStatusSwitch := false
 	for {
 		select {
 		case result := <-dp.found:
@@ -344,6 +339,13 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 				resultString, _ := result.value.toString(dp.fields)
 				log.Infof("GUID %v: arrived result %v for request ", guid, resultString, r)
 				return result.value, nil
+			}
+		case _ = <-dp.questStatusSwitch:
+			questStatusSwitch = !questStatusSwitch
+			if !questStatusSwitch {
+				log.Infof("GUID %v: quest status switch back to start; file was fully read and no matching result for %v was found. returning null", guid, r.HashCode())
+				dp.requests.Remove(r)
+				return nil, nil
 			}
 		}
 	}

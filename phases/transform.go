@@ -2,6 +2,7 @@ package phases
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/ezeriver94/gotransform/common"
 	"github.com/ezeriver94/gotransform/dataprovider"
 )
+
+var TemporaryUnavailableJoin = errors.New("Missing join dependencies; leaving for now")
 
 // Transformed is the result of a transformation applied
 type Transformed struct {
@@ -65,10 +68,10 @@ func (t *Transformer) join(
 	transformation common.DataTransformation,
 	dataSourceName string,
 	dataSourceFields map[string]interface{},
-) (map[string]dataprovider.Record, error) {
+) (dataprovider.Record, error) {
 
-	if _, ok := joins[dataSourceName]; ok {
-		return joins, nil
+	if join, ok := joins[dataSourceName]; ok {
+		return join, nil
 	}
 
 	join, ok := transformation.Joins[dataSourceName]
@@ -131,7 +134,7 @@ func (t *Transformer) join(
 			pendingDataSourceField = sourceField
 		} else {
 			log.Debugf("could not find %v on existing joins; cant perform join %v. leaving join for now", sourceName, join.To)
-			return joins, nil
+			return nil, TemporaryUnavailableJoin
 		}
 		field, err := targetJoin.Fields.Find(pendingDataSourceField)
 		if err != nil {
@@ -148,8 +151,7 @@ func (t *Transformer) join(
 	if err != nil {
 		return nil, fmt.Errorf("error fetching join record: %v", err)
 	}
-	joins[dataSourceName] = joinedRecord
-	return joins, nil
+	return joinedRecord, nil
 }
 
 // Transform applies transformation rules to input fields of a datasource
@@ -186,7 +188,14 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 				}
 				fields[key] = value
 			} else {
-				joins, err = t.join(joins, transformation, dataSourceName, dataSourceFields)
+				join, err := t.join(joins, transformation, dataSourceName, dataSourceFields)
+				if err != nil {
+					if err == TemporaryUnavailableJoin {
+						continue
+					}
+					return nil, fmt.Errorf("error joining record: %v", err)
+				}
+				joins[dataSourceName] = join
 				if err != nil {
 					return nil, fmt.Errorf("error on transformation join: %v", err)
 				}
