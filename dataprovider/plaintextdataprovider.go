@@ -17,10 +17,10 @@ import (
 	"github.com/ezeriver94/gotransform/common"
 )
 
-// Fetched represents a key value struct with a record obtained by filtering some request which transformed to string returns "key"
+// Fetched represents a key value struct with a common.Record obtained by filtering some request which transformed to string returns "key"
 type Fetched struct {
 	key   string
-	value Record
+	value common.Record
 }
 
 // PlainTextDataProvider is a dataprovider that can interact with text files, encoded in plain text
@@ -135,50 +135,6 @@ func (dp *PlainTextDataProvider) parseRecord(text string) (map[common.Field]stri
 	}
 	return result, nil
 }
-func (r *Record) toString(fields common.Fields) (string, error) {
-	result := ""
-	for _, field := range fields {
-		fieldName := field.Name
-		value, ok := (*r)[fieldName]
-		if !ok {
-			return result, fmt.Errorf("cannot find field %v in target", fieldName)
-		}
-		var fieldValue string
-		runeArrayValue := fieldToRuneArray(value)
-		stringValue := string(runeArrayValue)
-		if field.FixedLength > 0 {
-			if len(runeArrayValue) > field.FixedLength {
-				return result, fmt.Errorf("field %v has fixed length of %v and current value %v has longer length (%v)", field.Name, field.FixedLength, stringValue, len(runeArrayValue))
-			}
-			if len(runeArrayValue) == field.FixedLength {
-				fieldValue = stringValue
-			} else {
-				if len(field.Padding.Char) != 1 {
-					return result, fmt.Errorf("field %v has fixed length but padding character has not length of 1", field.Name)
-				}
-				if field.Padding.Mode == common.FieldPaddingLeft {
-					fieldValue = strings.Repeat(field.Padding.Char, field.FixedLength-len(runeArrayValue)) + stringValue
-				} else if field.Padding.Mode == common.FieldPaddingRight {
-					fieldValue = stringValue + strings.Repeat(field.Padding.Char, field.FixedLength-len(runeArrayValue))
-				}
-			}
-		} else {
-			if len(field.EndCharacter) != 1 {
-				return result, fmt.Errorf("field %v has no fixed length and end character has not length of 1", field.Name)
-			}
-			if len(runeArrayValue) > field.MaxLength {
-				return result, fmt.Errorf("field %v has max length of %v and value %v is longer than that (%v)", field.Name, field.MaxLength, stringValue, len(runeArrayValue))
-			}
-			fieldValue = stringValue
-			if len(runeArrayValue) < field.MaxLength {
-				fieldValue += field.EndCharacter
-			}
-		}
-
-		result += fieldValue
-	}
-	return result, nil
-}
 
 func (dp *PlainTextDataProvider) beginQuest() error {
 
@@ -285,23 +241,23 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 
 			matches := true
 			for filterField, filterValue := range request.Filters {
-				matches = matches && string(parsed[filterField]) == fieldToString(filterValue)
+				matches = matches && string(parsed[filterField]) == common.FieldToString(filterValue)
 			}
 			if matches {
-				record := make(Record)
-				log.Infof("record %v matches filter of %v; join ended", parsed, request)
+				record := make(common.Record)
+				log.Infof("common.Record %v matches filter of %v; join ended", parsed, request)
 				for _, field := range dp.fields {
 					log.Debugf("generating field value of %v", field.Name)
 					validated, err := field.Validate(parsed[field])
 					if err != nil {
-						log.Errorf("found matching record on line %v but reached error validating record: %v", s, err)
+						log.Errorf("found matching common.Record on line %v but reached error validating common.Record: %v", s, err)
 					}
 					log.Debugf("value of field %v is %v", field.Name, validated)
 					record[field.Name] = validated
 				}
-				log.Debugf("finished building record for filter %v and value %v", request, parsed)
-				recordString, _ := record.toString(dp.fields)
-				log.Infof("returning record %v for request %v", recordString, request.HashCode())
+				log.Debugf("finished building common.Record for filter %v and value %v", request, parsed)
+				recordString, _ := record.ToString(dp.fields)
+				log.Infof("returning common.Record %v for request %v", recordString, request.HashCode())
 				dp.found <- Fetched{
 					key:   request.ToString(),
 					value: record,
@@ -309,14 +265,14 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				dp.requests.Remove(request)
 				break
 			} else {
-				log.Debugf("record %v dont matches filter of %v", parsed, (*req).HashCode())
+				log.Debugf("common.Record %v dont matches filter of %v", parsed, (*req).HashCode())
 			}
 		}
 	}
 }
 
 // Fetch finds a single value in the file which matches the filters in the request object and returns it if exists
-func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
+func (dp *PlainTextDataProvider) Fetch(r Request) (common.Record, error) {
 	guid := guid.NewString()
 	log.Infof("GUID %v: initialized guid %v for request %v", guid, guid, r.HashCode())
 	if !dp.questStarted {
@@ -336,8 +292,8 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (Record, error) {
 		select {
 		case result := <-dp.found:
 			if result.key == r.ToString() {
-				resultString, _ := result.value.toString(dp.fields)
-				log.Infof("GUID %v: arrived result %v for request ", guid, resultString, r)
+				resultString, _ := result.value.ToString(dp.fields)
+				log.Infof("GUID %v: arrived result %v for request %v", guid, resultString, r.HashCode())
 				return result.value, nil
 			}
 		case _ = <-dp.questStatusSwitch:
@@ -357,7 +313,7 @@ func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer
 	}
 	parsed, err := dp.parseRecord(record)
 	if err != nil {
-		log.Errorf("error parsing record %v, %v", record, err)
+		log.Errorf("error parsing common.Record %v, %v", record, err)
 		return
 	}
 	matches := true
@@ -373,7 +329,7 @@ func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer
 	}
 }
 
-// Stream reads every record in the file that matchs the filters in the request, and writes into the channel every one
+// Stream reads every common.Record in the file that matchs the filters in the request, and writes into the channel every one
 func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) error {
 	wait := sync.WaitGroup{}
 
@@ -388,14 +344,14 @@ func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) 
 }
 
 // Save writes the data sent into de buffer to the connection
-func (dp *PlainTextDataProvider) Save(buffer <-chan Record) error {
+func (dp *PlainTextDataProvider) Save(buffer <-chan common.Record) error {
 	for {
 		select {
 		case record, more := <-buffer:
 			if record != nil {
-				strRecord, err := record.toString(dp.fields)
+				strRecord, err := record.ToString(dp.fields)
 				if err != nil {
-					log.Errorf("error building string line from record: %v", err)
+					log.Errorf("error building string line from common.Record: %v", err)
 				}
 				n, err := fmt.Fprintln(dp.file, strRecord)
 				if err != nil {

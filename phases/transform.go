@@ -17,8 +17,8 @@ var TemporaryUnavailableJoin = errors.New("Missing join dependencies; leaving fo
 
 // Transformed is the result of a transformation applied
 type Transformed struct {
-	TransformationName string              `json:"transformationName"`
-	Record             dataprovider.Record `json:"record"`
+	TransformationName string        `json:"transformationName"`
+	Record             common.Record `json:"record"`
 }
 
 // Transformer handles transformations of an ETL job
@@ -42,7 +42,7 @@ func (t *Transformer) fetchJoin(
 	provider dataprovider.DataProvider,
 	filters map[common.Field]interface{},
 	dataSourceName string,
-) (dataprovider.Record, error) {
+) (common.Record, error) {
 
 	request := provider.NewRequest(filters)
 	cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
@@ -55,7 +55,7 @@ func (t *Transformer) fetchJoin(
 		return nil, fmt.Errorf("error finding join value: %v", err)
 	}
 	log.Infof("found join value for join %v: %v", request, stringResult)
-	var result dataprovider.Record
+	var result common.Record
 	err = json.Unmarshal([]byte(stringResult), &result)
 	if err != nil {
 		return nil, fmt.Errorf("error deserializing value %v", stringResult)
@@ -64,11 +64,11 @@ func (t *Transformer) fetchJoin(
 }
 
 func (t *Transformer) join(
-	joins map[string]dataprovider.Record,
+	joins map[string]common.Record,
 	transformation common.DataTransformation,
 	dataSourceName string,
 	dataSourceFields map[string]interface{},
-) (dataprovider.Record, error) {
+) (common.Record, error) {
 
 	if join, ok := joins[dataSourceName]; ok {
 		return join, nil
@@ -160,8 +160,8 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 	if !ok {
 		return nil, fmt.Errorf("invalid transformation with name %v in metadata", transformationName)
 	}
-	joins := make(map[string]dataprovider.Record)
-	fields := make(dataprovider.Record)
+	joins := make(map[string]common.Record)
+	fields := make(common.Record)
 
 	keepLooking := true
 

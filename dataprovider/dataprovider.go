@@ -14,9 +14,6 @@ type Request struct {
 	Filters  map[common.Field]interface{} `json:"filters"`
 }
 
-// Record represents a single row which
-type Record map[string]interface{}
-
 // ConnectionMode indicates the type of connection
 type ConnectionMode int
 
@@ -30,10 +27,10 @@ type DataProvider interface {
 	Connect(connectionMode ConnectionMode) error
 
 	NewRequest(filters map[common.Field]interface{}) Request
-	Fetch(r Request) (Record, error)
+	Fetch(r Request) (common.Record, error)
 
 	Stream(r Request, buffer chan<- []interface{}) error
-	Save(buffer <-chan Record) error
+	Save(buffer <-chan common.Record) error
 
 	Close() error
 }
@@ -76,40 +73,12 @@ func NewDataProvider(dataSource common.DataEndpoint) (DataProvider, error) {
 
 	return result, err
 }
-func fieldToString(data interface{}) string {
-	switch data.(type) {
-	case bool:
-		if data.(bool) == true {
-			return "1"
-		}
-		return "0"
-	default:
-		if data == nil {
-			return ""
-		}
-		return fmt.Sprint(data)
-	}
-}
-func fieldToRuneArray(data interface{}) []rune {
-	switch data.(type) {
-	case bool:
-		if data.(bool) == true {
-			return []rune("1")
-		}
-		return []rune("0")
-	default:
-		if data == nil {
-			return []rune("")
-		}
-		return []rune(fmt.Sprint(data))
-	}
-}
 
 // ToString converts a request to a string value
 func (r *Request) ToString() string {
 	var filters string
 	for field, value := range r.Filters {
-		filters += field.Name + ":" + fieldToString(value) + "#"
+		filters += field.Name + ":" + common.FieldToString(value) + "#"
 	}
 	return fmt.Sprintf("%v->%v", r.ObjectID, filters)
 }

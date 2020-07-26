@@ -13,7 +13,7 @@ import (
 // Loader handles loading data to a destination
 type Loader struct {
 	metadata  *common.Metadata
-	records   map[string]chan dataprovider.Record
+	records   map[string]chan common.Record
 	wait      sync.WaitGroup
 	providers map[string]dataprovider.DataProvider
 }
@@ -22,7 +22,7 @@ type Loader struct {
 func NewLoader(metadata *common.Metadata) (Loader, error) {
 	return Loader{
 		metadata:  metadata,
-		records:   make(map[string]chan dataprovider.Record),
+		records:   make(map[string]chan common.Record),
 		wait:      sync.WaitGroup{},
 		providers: make(map[string]dataprovider.DataProvider),
 	}, nil
@@ -41,7 +41,7 @@ func (l *Loader) Initialize() error {
 		}
 		l.providers[key] = provider
 		if _, ok := l.records[target.TransformationName]; !ok {
-			l.records[target.TransformationName] = make(chan dataprovider.Record)
+			l.records[target.TransformationName] = make(chan common.Record)
 		}
 		l.wait.Add(1)
 		go l.startSaving(provider, target)
