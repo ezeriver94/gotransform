@@ -27,9 +27,9 @@ type DataProvider interface {
 	Connect(connectionMode ConnectionMode) error
 
 	NewRequest(filters map[common.Field]interface{}) Request
-	Fetch(r Request) (common.Record, error)
+	Fetch(r Request) (*common.Record, error)
 
-	Stream(r Request, buffer chan<- []interface{}) error
+	Stream(r Request, buffer chan<- *common.Record) error
 	Save(buffer <-chan common.Record) error
 
 	Close() error

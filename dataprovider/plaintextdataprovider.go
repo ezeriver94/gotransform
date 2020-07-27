@@ -17,7 +17,7 @@ import (
 	"github.com/ezeriver94/gotransform/common"
 )
 
-// Fetched represents a key value struct with a common.Record obtained by filtering some request which transformed to string returns "key"
+// Fetched represents a key value struct with a record obtained by filtering some request which transformed to string returns "key"
 type Fetched struct {
 	key   string
 	value common.Record
@@ -244,20 +244,20 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				matches = matches && string(parsed[filterField]) == common.FieldToString(filterValue)
 			}
 			if matches {
-				record := make(common.Record)
-				log.Infof("common.Record %v matches filter of %v; join ended", parsed, request)
+				record := common.NewRecord(false)
+				log.Infof("record %v matches filter of %v; join ended", parsed, request)
 				for _, field := range dp.fields {
 					log.Debugf("generating field value of %v", field.Name)
 					validated, err := field.Validate(parsed[field])
 					if err != nil {
-						log.Errorf("found matching common.Record on line %v but reached error validating common.Record: %v", s, err)
+						log.Errorf("found matching record on line %v but reached error validating record: %v", s, err)
 					}
 					log.Debugf("value of field %v is %v", field.Name, validated)
-					record[field.Name] = validated
+					record.Set(field.Name, validated)
 				}
-				log.Debugf("finished building common.Record for filter %v and value %v", request, parsed)
+				log.Debugf("finished building record for filter %v and value %v", request, parsed)
 				recordString, _ := record.ToString(dp.fields)
-				log.Infof("returning common.Record %v for request %v", recordString, request.HashCode())
+				log.Infof("returning record %v for request %v", recordString, request.HashCode())
 				dp.found <- Fetched{
 					key:   request.ToString(),
 					value: record,
@@ -265,14 +265,14 @@ func (dp *PlainTextDataProvider) read(offset int64, limit int64, fileName string
 				dp.requests.Remove(request)
 				break
 			} else {
-				log.Debugf("common.Record %v dont matches filter of %v", parsed, (*req).HashCode())
+				log.Debugf("record %v dont matches filter of %v", parsed, (*req).HashCode())
 			}
 		}
 	}
 }
 
 // Fetch finds a single value in the file which matches the filters in the request object and returns it if exists
-func (dp *PlainTextDataProvider) Fetch(r Request) (common.Record, error) {
+func (dp *PlainTextDataProvider) Fetch(r Request) (*common.Record, error) {
 	guid := guid.NewString()
 	log.Infof("GUID %v: initialized guid %v for request %v", guid, guid, r.HashCode())
 	if !dp.questStarted {
@@ -294,26 +294,27 @@ func (dp *PlainTextDataProvider) Fetch(r Request) (common.Record, error) {
 			if result.key == r.ToString() {
 				resultString, _ := result.value.ToString(dp.fields)
 				log.Infof("GUID %v: arrived result %v for request %v", guid, resultString, r.HashCode())
-				return result.value, nil
+				return &result.value, nil
 			}
 		case _ = <-dp.questStatusSwitch:
 			questStatusSwitch = !questStatusSwitch
 			if !questStatusSwitch {
 				log.Infof("GUID %v: quest status switch back to start; file was fully read and no matching result for %v was found. returning null", guid, r.HashCode())
 				dp.requests.Remove(r)
-				return nil, nil
+				result := common.NewRecord(false)
+				return &result, nil
 			}
 		}
 	}
 }
-func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer chan<- []interface{}, wait *sync.WaitGroup) {
+func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer chan<- *common.Record, wait *sync.WaitGroup) {
 	defer wait.Done()
 	if len(strings.TrimSpace(record)) == 0 {
 		return
 	}
 	parsed, err := dp.parseRecord(record)
 	if err != nil {
-		log.Errorf("error parsing common.Record %v, %v", record, err)
+		log.Errorf("error parsing record %v, %v", record, err)
 		return
 	}
 	matches := true
@@ -321,16 +322,16 @@ func (dp *PlainTextDataProvider) streamRecord(record string, req Request, buffer
 		matches = matches && string(parsed[filterField]) == filterValue
 	}
 	if matches {
-		result := make([]interface{}, len(dp.fields))
+		result := common.NewRecord(true)
 		for index, field := range dp.fields {
-			result[index] = parsed[field]
+			result.Set(index, parsed[field])
 		}
-		buffer <- result
+		buffer <- &result
 	}
 }
 
-// Stream reads every common.Record in the file that matchs the filters in the request, and writes into the channel every one
-func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) error {
+// Stream reads every record in the file that matchs the filters in the request, and writes into the channel every one
+func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- *common.Record) error {
 	wait := sync.WaitGroup{}
 
 	scanner := bufio.NewScanner(dp.file)
@@ -338,6 +339,7 @@ func (dp *PlainTextDataProvider) Stream(r Request, buffer chan<- []interface{}) 
 		text := scanner.Text()
 		wait.Add(1)
 		go dp.streamRecord(text, r, buffer, &wait)
+		// dp.streamRecord(text, r, buffer, &wait)
 	}
 	wait.Wait()
 	return nil
@@ -348,10 +350,10 @@ func (dp *PlainTextDataProvider) Save(buffer <-chan common.Record) error {
 	for {
 		select {
 		case record, more := <-buffer:
-			if record != nil {
+			if !record.Empty {
 				strRecord, err := record.ToString(dp.fields)
 				if err != nil {
-					log.Errorf("error building string line from common.Record: %v", err)
+					log.Errorf("error building string line from record: %v", err)
 				}
 				n, err := fmt.Fprintln(dp.file, strRecord)
 				if err != nil {

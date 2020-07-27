@@ -22,7 +22,7 @@ func NewExtractor(metadata *common.Metadata) (Extractor, error) {
 }
 
 // Extract reads every record of a dataSource and streams it into the records channel
-func (e *Extractor) Extract(dataSourceName string, records chan<- []interface{}) error {
+func (e *Extractor) Extract(dataSourceName string, records chan<- *common.Record) error {
 	provider, err := dataprovider.GetDataProviderFromDataSource(e.metadata, dataSourceName, true)
 	if err != nil {
 		return err

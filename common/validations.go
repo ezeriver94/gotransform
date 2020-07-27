@@ -1,8 +1,6 @@
 package common
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 )
@@ -86,36 +84,37 @@ func (ds *DataEndpoint) FieldCount() int {
 }
 
 // Validate deserializes json data into an array and checks every field against the attributes of the metadata instance
-func (ds *DataEndpoint) Validate(jsonData []byte) (map[string]interface{}, error) {
+func (ds *DataEndpoint) Validate(record *Record) error {
 	errString := ""
 	fieldCount := ds.FieldCount()
-	parsed := make([]interface{}, fieldCount)
-
-	err := json.Unmarshal(jsonData, &parsed)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing json: %v", err)
+	if record.Length() < ds.FieldCount() {
+		return fmt.Errorf(record.Log("row length (%v) is less than metadata fields (%v)", record.Length(), fieldCount))
 	}
-	if len(parsed) < ds.FieldCount() {
-		return nil, fmt.Errorf("row length (%v) is less than metadata fields (%v)", len(parsed), fieldCount)
+	if record.Length() > ds.FieldCount() {
+		return fmt.Errorf(record.Log("row length (%v) is greater than metadata fields (%v)", record.Length(), fieldCount))
 	}
-	if len(parsed) > ds.FieldCount() {
-		return nil, fmt.Errorf("row length (%v) is greater than metadata fields (%v)", len(parsed), fieldCount)
-	}
-
-	result := make(map[string]interface{}, fieldCount)
-
+	record.StartUnraw()
 	for index, field := range ds.Fields {
-		converted, err := field.Validate(parsed[index])
+		data, err := record.Get(index)
 		if err != nil {
 			errString = fmt.Sprintf("%v\n%v", errString, err)
-		} else {
-			result[field.Name] = converted
+			continue
+		}
+		converted, err := field.Validate(data)
+		if err != nil {
+			errString = fmt.Sprintf("%v\n%v", errString, err)
+			continue
+		}
+		err = record.Set(field.Name, converted)
+		if err != nil {
+			errString = fmt.Sprintf("%v\n%v", errString, err)
+			continue
 		}
 	}
-
+	record.EndUnraw()
 	if errString != "" {
-		return nil, errors.New(errString)
+		return fmt.Errorf(record.Log("error validating record: %v", errString))
 	}
 
-	return result, nil
+	return nil
 }

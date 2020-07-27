@@ -42,7 +42,8 @@ func (t *Transformer) fetchJoin(
 	provider dataprovider.DataProvider,
 	filters map[common.Field]interface{},
 	dataSourceName string,
-) (common.Record, error) {
+) (*common.Record, error) {
+	result := common.NewRecord(false)
 
 	request := provider.NewRequest(filters)
 	cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
@@ -55,44 +56,45 @@ func (t *Transformer) fetchJoin(
 		return nil, fmt.Errorf("error finding join value: %v", err)
 	}
 	log.Infof("found join value for join %v: %v", request, stringResult)
-	var result common.Record
-	err = json.Unmarshal([]byte(stringResult), &result)
+
+	err = result.PopulateFromJSON(stringResult)
 	if err != nil {
-		return nil, fmt.Errorf("error deserializing value %v", stringResult)
+		return nil, fmt.Errorf("error populating record from json value %v: %v", stringResult, err)
 	}
-	return result, nil
+	return &result, nil
 }
 
 func (t *Transformer) join(
-	joins map[string]common.Record,
+	joins map[string]*common.Record,
 	transformation common.DataTransformation,
 	dataSourceName string,
-	dataSourceFields map[string]interface{},
-) (common.Record, error) {
+	record *common.Record,
+) (*common.Record, error) {
 
+	result := common.NewRecord(false)
 	if join, ok := joins[dataSourceName]; ok {
 		return join, nil
 	}
 
 	join, ok := transformation.Joins[dataSourceName]
 	if !ok {
-		return nil, fmt.Errorf("join %v not found in metadata", dataSourceName)
+		return &result, fmt.Errorf("join %v not found in metadata", dataSourceName)
 	}
 	targetJoinName := join.To
 	targetJoin, ok := t.metadata.Extract.AditionalDataSources[targetJoinName]
 	if !ok {
-		return nil, fmt.Errorf("datasource %v not found in metadata", targetJoinName)
+		return &result, fmt.Errorf("datasource %v not found in metadata", targetJoinName)
 	}
 	provider, ok := t.dataProviders[targetJoinName]
 	var err error
 	if !ok {
 		provider, err = dataprovider.NewDataProvider(targetJoin)
 		if err != nil {
-			return nil, fmt.Errorf("error building dataProvider for %v: %v", targetJoin.Driver, err)
+			return &result, fmt.Errorf("error building dataProvider for %v: %v", targetJoin.Driver, err)
 		}
 		err = provider.Connect(dataprovider.ConnectionModeRead)
 		if err != nil {
-			return nil, fmt.Errorf("error connecting to driver %v for datasource %v: %v", targetJoin.Driver, targetJoinName, err)
+			return &result, fmt.Errorf("error connecting to driver %v for datasource %v: %v", targetJoin.Driver, targetJoinName, err)
 		}
 		t.sync.Lock()
 		if _, ok := t.dataProviders[dataSourceName]; !ok {
@@ -105,15 +107,15 @@ func (t *Transformer) join(
 	for _, onClause := range join.On {
 		source, target, err := onClause.Parse()
 		if err != nil {
-			return nil, err
+			return &result, err
 		}
 		sourceName, sourceField, err := source.Parse()
 		if err != nil {
-			return nil, err
+			return &result, err
 		}
 		targetName, targetField, err := target.Parse()
 		if err != nil {
-			return nil, err
+			return &result, err
 		}
 
 		var (
@@ -122,7 +124,7 @@ func (t *Transformer) join(
 			pendingDataSourceField  string
 		)
 		if join.To != targetName && join.To != sourceName {
-			return nil, fmt.Errorf("wrong join OnClause definition; neither one of the sources of the clause %v matches the target of the join %v", onClause, join.To)
+			return &result, fmt.Errorf("wrong join OnClause definition; neither one of the sources of the clause %v matches the target of the join %v", onClause, join.To)
 		}
 		if _, ok := joins[sourceName]; ok || sourceName == transformation.From {
 			existingDataSourceName = sourceName
@@ -134,41 +136,50 @@ func (t *Transformer) join(
 			pendingDataSourceField = sourceField
 		} else {
 			log.Debugf("could not find %v on existing joins; cant perform join %v. leaving join for now", sourceName, join.To)
-			return nil, TemporaryUnavailableJoin
+			return &result, TemporaryUnavailableJoin
 		}
 		field, err := targetJoin.Fields.Find(pendingDataSourceField)
 		if err != nil {
-			return nil, err
+			return &result, err
 		}
 		if transformation.From == existingDataSourceName {
-			filters[field] = dataSourceFields[existingDataSourceField]
+			data, err := record.Get(existingDataSourceField)
+			if err != nil {
+				return nil, fmt.Errorf("error finding value of field %v in record %v", existingDataSourceField, record)
+			}
+			filters[field] = data
 		} else {
-			filters[field] = joins[existingDataSourceName][existingDataSourceField]
+			data, err := joins[existingDataSourceName].Get(existingDataSourceField)
+			if err != nil {
+				return nil, fmt.Errorf("error getting record value from key %v: %v", existingDataSourceField, err)
+			}
+			filters[field] = data
 		}
 	}
-	log.Debugf("trying to join %v using %v filters", join.To, common.PrettyPrint(filters))
+	log.Debugf(record.Log("trying to join %v using %v filters", join.To, common.PrettyPrint(filters)))
 	joinedRecord, err := t.fetchJoin(provider, filters, dataSourceName)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching join record: %v", err)
+		return &result, fmt.Errorf("error fetching join record: %v", err)
 	}
 	return joinedRecord, nil
 }
 
 // Transform applies transformation rules to input fields of a datasource
-func (t *Transformer) Transform(transformationName string, dataSourceFields map[string]interface{}) (*Transformed, error) {
+func (t *Transformer) Transform(transformationName string, record *common.Record) (*Transformed, error) {
+	log.Infof(record.Log("starting transformation for record %v", record))
 	transformation, ok := t.metadata.Transform[transformationName]
 	if !ok {
-		return nil, fmt.Errorf("invalid transformation with name %v in metadata", transformationName)
+		return nil, fmt.Errorf(record.Log("invalid transformation with name %v in metadata", transformationName))
 	}
-	joins := make(map[string]common.Record)
-	fields := make(common.Record)
+	joins := make(map[string]*common.Record)
+	fields := common.NewRecord(false)
 
 	keepLooking := true
 
 	for keepLooking {
 		pendingKeys := make([]string, 0)
 		for key := range transformation.Select {
-			if _, ok := fields[key]; !ok {
+			if ok, _ := fields.IsSet(key); !ok {
 				pendingKeys = append(pendingKeys, key)
 			}
 		}
@@ -182,13 +193,13 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 			}
 
 			if dataSourceName == transformation.From {
-				value, ok := dataSourceFields[fieldName]
-				if !ok {
-					return nil, fmt.Errorf("cannot find expected field %v in primary datasource values %v", fieldName, dataSourceFields)
+				value, err := record.Get(fieldName)
+				if err != nil {
+					return nil, fmt.Errorf("error finding value of field %v in record %v", fieldName, record)
 				}
-				fields[key] = value
+				fields.Set(key, value)
 			} else {
-				join, err := t.join(joins, transformation, dataSourceName, dataSourceFields)
+				join, err := t.join(joins, transformation, dataSourceName, record)
 				if err != nil {
 					if err == TemporaryUnavailableJoin {
 						continue
@@ -203,12 +214,16 @@ func (t *Transformer) Transform(transformationName string, dataSourceFields map[
 				if !ok {
 					continue SelectLoop
 				}
-				fields[key] = joinedRecord[fieldName]
+				value, err := joinedRecord.Get(fieldName)
+				if err != nil {
+					return nil, fmt.Errorf("error getting value of key %v for record %v", fieldName, joinedRecord)
+				}
+				fields.Set(key, value)
 			}
 		}
-		keepLooking = (len(transformation.Select) > len(fields)) && (len(transformation.Select)-len(fields) < len(pendingKeys))
+		keepLooking = (len(transformation.Select) > fields.Length()) && (len(transformation.Select)-fields.Length() < len(pendingKeys))
 	}
-	if len(fields) < len(transformation.Select) {
+	if fields.Length() < len(transformation.Select) {
 		return nil, fmt.Errorf("error on transformation %v, could not perform every join expected", transformationName)
 	}
 	result := Transformed{
