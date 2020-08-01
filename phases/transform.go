@@ -43,7 +43,7 @@ func (t *Transformer) fetchJoin(
 	filters map[common.Field]interface{},
 	dataSourceName string,
 ) (*common.Record, error) {
-	result := common.NewRecord(false)
+	var result common.Record
 
 	request := provider.NewRequest(filters)
 	cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
@@ -57,9 +57,9 @@ func (t *Transformer) fetchJoin(
 	}
 	log.Infof("found join value for join %v: %v", request, stringResult)
 
-	err = result.PopulateFromJSON(stringResult)
+	err = json.Unmarshal([]byte(stringResult), &result) //result.PopulateFromJSON(stringResult)
 	if err != nil {
-		return nil, fmt.Errorf("error populating record from json value %v: %v", stringResult, err)
+		return nil, fmt.Errorf("error deserializing string to record %v: %v", stringResult, err)
 	}
 	return &result, nil
 }

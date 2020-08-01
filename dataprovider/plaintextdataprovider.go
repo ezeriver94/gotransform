@@ -351,13 +351,17 @@ func (dp *PlainTextDataProvider) Save(buffer <-chan common.Record) error {
 		select {
 		case record, more := <-buffer:
 			if !record.Empty {
+				log.Infof(record.Log("getting string value of record"))
 				strRecord, err := record.ToString(dp.fields)
 				if err != nil {
 					log.Errorf("error building string line from record: %v", err)
+					continue
 				}
+				log.Infof(record.Log("string value of record is %v", strRecord))
 				n, err := fmt.Fprintln(dp.file, strRecord)
 				if err != nil {
 					log.Errorf("error writing line %v to file: %v", strRecord, err)
+					continue
 				}
 				log.Debugf("printed %v bytes to file ", n)
 			}

@@ -256,7 +256,7 @@ func (r *Record) PopulateFromJSON(data string) error {
 
 // Log returns a string with a message concatenated to the GUID of the record
 func (r *Record) Log(message string, args ...interface{}) string {
-	return fmt.Sprintf("GUID: %v | %v", r.ID.String(), fmt.Sprintf(message, args))
+	return fmt.Sprintf("GUID: %v | %v", r.ID.String(), fmt.Sprintf(message, args...))
 }
 
 // TryGet receives two arguments to use as a key for Get method, and uses the correct one according to the raw field
