@@ -89,8 +89,21 @@ func (c *Consumer) Consume(handle Handle) error {
 	if err != nil {
 		return fmt.Errorf("Queue Consume: %s", err)
 	}
-	handle(deliveries)
-	return nil
+	rabbitCloseError := make(chan *amqp.Error)
+	c.conn.NotifyClose(rabbitCloseError)
+	handled := false
+	for {
+		select {
+		case rabbitErr := <-rabbitCloseError:
+			return rabbitErr
+		default:
+			if handled {
+				return nil
+			}
+			handled = true
+			handle(deliveries)
+		}
+	}
 }
 
 // Shutdown closes a consumer connection

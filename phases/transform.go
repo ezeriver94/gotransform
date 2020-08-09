@@ -184,7 +184,6 @@ func (t *Transformer) Transform(transformationName string, record *common.Record
 			}
 		}
 
-	SelectLoop:
 		for _, key := range pendingKeys {
 			sel := transformation.Select[key]
 			dataSourceName, fieldName, err := sel.Parse()
@@ -210,13 +209,15 @@ func (t *Transformer) Transform(transformationName string, record *common.Record
 				if err != nil {
 					return nil, fmt.Errorf("error on transformation join: %v", err)
 				}
-				joinedRecord, ok := joins[dataSourceName]
-				if !ok {
-					continue SelectLoop
-				}
-				value, err := joinedRecord.Get(fieldName)
-				if err != nil {
-					return nil, fmt.Errorf("error getting value of key %v for record %v", fieldName, joinedRecord)
+				joinedRecord, _ := joins[dataSourceName]
+				var value interface{}
+				if joinedRecord.Empty {
+					value = nil
+				} else {
+					value, err = joinedRecord.Get(fieldName)
+					if err != nil {
+						return nil, fmt.Errorf("error getting value of key %v for record %v", fieldName, joinedRecord)
+					}
 				}
 				fields.Set(key, value)
 			}
