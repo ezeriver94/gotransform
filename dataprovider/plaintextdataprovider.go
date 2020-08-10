@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -95,6 +96,9 @@ func (dp *PlainTextDataProvider) Connect(connectionMode ConnectionMode) error {
 			return fmt.Errorf("error: target file %v already exists", dp.filePath)
 		}
 		if os.IsNotExist(err) {
+			dir, _ := filepath.Abs(filepath.Dir(dp.filePath))
+			os.MkdirAll(dir, os.ModePerm)
+
 			_, err := os.Create(dp.filePath)
 			if err != nil {
 				return err
