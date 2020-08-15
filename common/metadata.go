@@ -15,6 +15,7 @@ type Fields []Field
 
 // DataEndpoint contains information of a single entity which acts both as a source and as a data destination
 type DataEndpoint struct {
+	AccessorURL      string `yaml:"accessorURL"`
 	Driver           string `yaml:"driver"`
 	ConnectionString string `yaml:"connectionstring"`
 	ObjectIdentifier string `yaml:"objectid"`
@@ -82,6 +83,11 @@ type Field struct {
 // MarshalText returns the marshaled value of a field
 func (f Field) MarshalText() (text []byte, err error) {
 	return []byte(f.Name), nil
+}
+
+func (f *Field) UnmarshalText(text []byte) error {
+	f.Name = string(text)
+	return nil
 }
 
 // Extract contains primary datasources (which are fully read and cannot be related to each others) and aditional datasources (used on join clauses on transformations)

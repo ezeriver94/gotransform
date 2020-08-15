@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/ezeriver94/gotransform/common"
-	"github.com/ezeriver94/gotransform/dataprovider"
+	"github.com/ezeriver94/gotransform/data"
 )
 
 // Extractor parses all the primary datasources and streams every row into the channel
@@ -23,17 +23,15 @@ func NewExtractor(metadata *common.Metadata) (Extractor, error) {
 
 // Extract reads every record of a dataSource and streams it into the records channel
 func (e *Extractor) Extract(dataSourceName string, records chan<- *common.Record) error {
-	provider, err := dataprovider.GetDataProviderFromDataSource(e.metadata, dataSourceName, true)
-	if err != nil {
-		return err
+	dataSource, ok := e.metadata.Extract.PrimaryDataSources[dataSourceName]
+	if !ok {
+		return fmt.Errorf("missing primary datasource %v on extract metadata", dataSourceName)
 	}
-	err = provider.Connect(dataprovider.ConnectionModeRead)
-	if err != nil {
-		return fmt.Errorf("error connecting to datasource %v: %v", dataSourceName, err)
-	}
-	request := provider.NewRequest(nil)
+	accessor := data.NewDataAccessor(dataSource.AccessorURL, dataSourceName)
 
-	err = provider.Stream(request, records)
+	request := data.NewRequest(nil)
+
+	err := accessor.Stream(records, request)
 	if err != nil {
 		return fmt.Errorf("error streaming datasource %v: %v", dataSourceName, err)
 	}

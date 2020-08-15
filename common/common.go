@@ -48,10 +48,10 @@ func (r *Record) EndUnraw() {
 }
 
 // MarshalJSON serializes a record to json
-func (r *Record) MarshalJSON() ([]byte, error) {
+func (r Record) MarshalJSON() ([]byte, error) {
 	buffer := bytes.NewBufferString("{")
 	buffer.WriteString("\"guid\" :")
-	guidData, err := json.Marshal(r.ID)
+	guidData, err := json.Marshal(r.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -85,10 +85,10 @@ func (r *Record) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON serializes a record to json
-func (r *Record) UnmarshalJSON(b []byte) error {
+func (r Record) UnmarshalJSON(b []byte) error {
 	type PlainData struct {
-		Guid guid.Guid `json:"guid"`
-		Raw  bool      `json:"raw"`
+		Guid string `json:"guid"`
+		Raw  bool   `json:"raw"`
 	}
 	var plainData PlainData
 	err := json.Unmarshal(b, &plainData)
@@ -96,7 +96,10 @@ func (r *Record) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	r.raw = plainData.Raw
-	r.ID = &plainData.Guid
+	r.ID, err = guid.ParseString(plainData.Guid)
+	if err != nil {
+		return err
+	}
 	if r.raw {
 		type RawData struct {
 			Data []interface{} `json:"data"`

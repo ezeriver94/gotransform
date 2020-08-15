@@ -8,9 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/ezeriver94/gotransform/cache"
 	"github.com/ezeriver94/gotransform/common"
-	"github.com/ezeriver94/gotransform/dataprovider"
+	"github.com/ezeriver94/gotransform/data"
 )
 
 var TemporaryUnavailableJoin = errors.New("Missing join dependencies; leaving for now")
@@ -23,47 +22,19 @@ type Transformed struct {
 
 // Transformer handles transformations of an ETL job
 type Transformer struct {
-	metadata      *common.Metadata
-	cache         *cache.KeyValueCache
-	dataProviders map[string]dataprovider.DataProvider
-	sync          sync.Mutex
+	metadata  *common.Metadata
+	accessors map[string]data.DataAccessor
+	sync      sync.Mutex
 }
 
 // NewTransformer creates a transformer using the passed metadata
-func NewTransformer(metadata *common.Metadata, cache *cache.KeyValueCache) (Transformer, error) {
+func NewTransformer(metadata *common.Metadata) (Transformer, error) {
 	return Transformer{
-		metadata:      metadata,
-		cache:         cache,
-		dataProviders: map[string]dataprovider.DataProvider{},
-		sync:          sync.Mutex{},
+		metadata:  metadata,
+		accessors: make(map[string]data.DataAccessor),
+		sync:      sync.Mutex{},
 	}, nil
 }
-func (t *Transformer) fetchJoin(
-	provider dataprovider.DataProvider,
-	filters map[common.Field]interface{},
-	dataSourceName string,
-) (*common.Record, error) {
-	var result common.Record
-
-	request := provider.NewRequest(filters)
-	cacheKey := fmt.Sprintf("%v->%v", dataSourceName, request.ToString())
-
-	fetchRequest := func() (interface{}, error) {
-		return provider.Fetch(request)
-	}
-	stringResult, err := t.cache.Retrieve(cacheKey, fetchRequest)
-	if err != nil {
-		return nil, fmt.Errorf("error finding join value: %v", err)
-	}
-	log.Infof("found join value for join %v: %v", request, stringResult)
-
-	err = json.Unmarshal([]byte(stringResult), &result) //result.PopulateFromJSON(stringResult)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing string to record %v: %v", stringResult, err)
-	}
-	return &result, nil
-}
-
 func (t *Transformer) join(
 	joins map[string]*common.Record,
 	transformation common.DataTransformation,
@@ -85,25 +56,20 @@ func (t *Transformer) join(
 	if !ok {
 		return &result, fmt.Errorf("datasource %v not found in metadata", targetJoinName)
 	}
-	provider, ok := t.dataProviders[targetJoinName]
+	accessor, ok := t.accessors[targetJoinName]
 	var err error
 	if !ok {
-		provider, err = dataprovider.NewDataProvider(targetJoin)
+		accessor = data.NewDataAccessor(targetJoin.AccessorURL, targetJoinName)
 		if err != nil {
 			return &result, fmt.Errorf("error building dataProvider for %v: %v", targetJoin.Driver, err)
 		}
-		err = provider.Connect(dataprovider.ConnectionModeRead)
-		if err != nil {
-			return &result, fmt.Errorf("error connecting to driver %v for datasource %v: %v", targetJoin.Driver, targetJoinName, err)
-		}
 		t.sync.Lock()
-		if _, ok := t.dataProviders[dataSourceName]; !ok {
-			t.dataProviders[dataSourceName] = provider
+		if _, ok := t.accessors[dataSourceName]; !ok {
+			t.accessors[dataSourceName] = accessor
 		}
 		t.sync.Unlock()
 	}
-	filters := make(map[common.Field]interface{})
-
+	filters := make(map[string]interface{})
 	for _, onClause := range join.On {
 		source, target, err := onClause.Parse()
 		if err != nil {
@@ -147,17 +113,18 @@ func (t *Transformer) join(
 			if err != nil {
 				return nil, fmt.Errorf("error finding value of field %v in record %v", existingDataSourceField, record)
 			}
-			filters[field] = data
+			filters[field.Name] = data
 		} else {
 			data, err := joins[existingDataSourceName].Get(existingDataSourceField)
 			if err != nil {
 				return nil, fmt.Errorf("error getting record value from key %v: %v", existingDataSourceField, err)
 			}
-			filters[field] = data
+			filters[field.Name] = data
 		}
 	}
 	log.Debugf(record.Log("trying to join %v using %v filters", join.To, common.PrettyPrint(filters)))
-	joinedRecord, err := t.fetchJoin(provider, filters, dataSourceName)
+	request := data.NewRequest(filters)
+	joinedRecord, err := accessor.Fetch(request)
 	if err != nil {
 		return &result, fmt.Errorf("error fetching join record: %v", err)
 	}

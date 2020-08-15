@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ezeriver94/gotransform/env"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/VictoriaMetrics/fastcache"
@@ -13,27 +14,35 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-type KeyValueCache struct {
-	cache *cache.Cache
-}
+var redisCache *cache.Cache = nil
+var (
+	cacheHost     string
+	cachePassword string
+	cachePort     int
+	cacheEnabled  bool = false
+)
 
-// NewCache creates a new redis cache
-func NewCache(address, password string, port int) (*KeyValueCache, error) {
+func init() {
+	cacheHost := env.GetString("REDIS_CACHE_HOST")
+	cachePassword := env.GetString("REDIS_CACHE_PASSWORD")
+	if len(cacheHost) == 0 {
+		return
+	}
+	cacheEnabled = true
+	err := env.Get("REDIS_CACHE_PORT", &cachePort, 6379, nil)
+	if err != nil {
+		log.Fatalf("error parsing REDIS_CACHE_PORT envVar: %v", err)
+	}
 	ring := redis.NewRing(&redis.RingOptions{
 		Addrs: map[string]string{
-			"server1": fmt.Sprintf("%v:%v", address, port),
+			"server1": fmt.Sprintf("%v:%v", cacheHost, cachePort),
 		},
-		Password: password,
+		Password: cachePassword,
 	})
-
-	mycache := cache.New(&cache.Options{
+	redisCache = cache.New(&cache.Options{
 		Redis:      ring,
 		LocalCache: fastcache.New(100 << 20), // 100 MB
 	})
-
-	return &KeyValueCache{
-		cache: mycache,
-	}, nil
 }
 
 func valueToString(value interface{}) (string, error) {
@@ -47,13 +56,13 @@ func valueToString(value interface{}) (string, error) {
 }
 
 // Retrieve tries to get a value from redis cache (if setted); if found, it returns it, otherwise, the function get is executed and stored in cache, and returned
-func (kv *KeyValueCache) Retrieve(key string, get func() (interface{}, error)) (string, error) {
+func Retrieve(key string, get func() (interface{}, error)) (string, error) {
 	var stringResult string
 	var err error
-	if kv.cache != nil {
+	if redisCache != nil {
 		ctx := context.TODO()
 		var result interface{}
-		if err = kv.cache.Get(ctx, key, &result); err != nil {
+		if err = redisCache.Get(ctx, key, &result); err != nil {
 			log.Debugf("cache miss for key %v. fetching data", key)
 
 			result, err = get()
@@ -66,7 +75,7 @@ func (kv *KeyValueCache) Retrieve(key string, get func() (interface{}, error)) (
 			}
 
 			log.Debugf("saving key %v with value %v in cache", key, stringResult)
-			if err := kv.cache.Set(&cache.Item{
+			if err := redisCache.Set(&cache.Item{
 				Ctx:   ctx,
 				Key:   key,
 				Value: stringResult,
