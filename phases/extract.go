@@ -22,7 +22,7 @@ func NewExtractor(metadata *common.Metadata) (Extractor, error) {
 }
 
 // Extract reads every record of a dataSource and streams it into the records channel
-func (e *Extractor) Extract(dataSourceName string, records chan<- *common.Record) error {
+func (e *Extractor) Extract(dataSourceName string, records chan<- common.Record) error {
 	dataSource, ok := e.metadata.Extract.PrimaryDataSources[dataSourceName]
 	if !ok {
 		return fmt.Errorf("missing primary datasource %v on extract metadata", dataSourceName)

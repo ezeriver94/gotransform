@@ -85,7 +85,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON serializes a record to json
-func (r Record) UnmarshalJSON(b []byte) error {
+func (r *Record) UnmarshalJSON(b []byte) error {
 	type PlainData struct {
 		Guid string `json:"guid"`
 		Raw  bool   `json:"raw"`
