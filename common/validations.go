@@ -73,6 +73,10 @@ func (f *Field) ValidateInt(data interface{}) (int, error) {
 		return result, nil
 	case int:
 		return data.(int), nil
+	case float32:
+		return int(data.(float32)), nil
+	case float64:
+		return int(data.(float64)), nil
 	default:
 		return 0, fmt.Errorf("cannot convert from type %T to int", data)
 	}
@@ -93,9 +97,12 @@ func (ds *DataEndpoint) Validate(record *Record) error {
 	if record.Length() > ds.FieldCount() {
 		return fmt.Errorf(record.Log("row length (%v) is greater than metadata fields (%v)", record.Length(), fieldCount))
 	}
-	record.StartUnraw()
+	if record.raw {
+		record.StartUnraw()
+	}
+
 	for index, field := range ds.Fields {
-		data, err := record.Get(index)
+		data, err := record.TryGet(field.Name, index)
 		if err != nil {
 			errString = fmt.Sprintf("%v\n%v", errString, err)
 			continue
@@ -111,7 +118,10 @@ func (ds *DataEndpoint) Validate(record *Record) error {
 			continue
 		}
 	}
-	record.EndUnraw()
+	if record.unrawing {
+		record.EndUnraw()
+	}
+
 	if errString != "" {
 		return fmt.Errorf(record.Log("error validating record: %v", errString))
 	}
