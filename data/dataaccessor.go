@@ -22,7 +22,7 @@ type DataAccessor struct {
 
 func NewDataAccessor(url, id string) DataAccessor {
 	return DataAccessor{
-		Url: flag.String("addr", url, "http service address"),
+		Url: flag.String(fmt.Sprintf("%v addr", id), url, fmt.Sprintf("http service address for id %v", id)),
 		ID:  id,
 	}
 }
@@ -72,7 +72,7 @@ func (da *DataAccessor) Fetch(r Request) (*common.Record, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error reading response body: %v", err)
 		}
-		return resultJSON, nil
+		return string(resultJSON), nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error finding join value: %v", err)
