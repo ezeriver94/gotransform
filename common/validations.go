@@ -1,31 +1,14 @@
 package common
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 )
 
-// ValidateInt checks if one value can be converted to int
-func (f *Field) ValidateInt(data interface{}) (int, error) {
-	switch data.(type) {
-	case string:
-		result, err := strconv.Atoi(fmt.Sprintf("%v", data))
-		if err != nil {
-			return 0, err
-		}
-		return result, nil
-	case int:
-		return data.(int), nil
-	default:
-		return 0, fmt.Errorf("cannot convert from type %T to int", data)
-	}
-}
-
 // ValidateString checks if one value can be converted to string
 func (f *Field) ValidateString(data interface{}) (string, error) {
 	return data.(string), nil
+
 }
 
 // ValidateBool checks if one value can be converted to bool
@@ -79,42 +62,69 @@ func (f *Field) Validate(data interface{}) (interface{}, error) {
 	}
 }
 
+// ValidateInt checks if one value can be converted to int
+func (f *Field) ValidateInt(data interface{}) (int, error) {
+	switch data.(type) {
+	case string:
+		result, err := strconv.Atoi(fmt.Sprintf("%v", data))
+		if err != nil {
+			return 0, err
+		}
+		return result, nil
+	case int:
+		return data.(int), nil
+	case float32:
+		return int(data.(float32)), nil
+	case float64:
+		return int(data.(float64)), nil
+	default:
+		return 0, fmt.Errorf("cannot convert from type %T to int", data)
+	}
+}
+
 // FieldCount returns the amount of fields defined within a datasource
 func (ds *DataEndpoint) FieldCount() int {
 	return len(ds.Fields)
 }
 
 // Validate deserializes json data into an array and checks every field against the attributes of the metadata instance
-func (ds *DataEndpoint) Validate(jsonData []byte) (map[string]interface{}, error) {
+func (ds *DataEndpoint) Validate(record *Record) error {
 	errString := ""
 	fieldCount := ds.FieldCount()
-	parsed := make([]interface{}, fieldCount)
-
-	err := json.Unmarshal(jsonData, &parsed)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing json: %v", err)
+	if record.Length() < ds.FieldCount() {
+		return fmt.Errorf(record.Log("row length (%v) is less than metadata fields (%v)", record.Length(), fieldCount))
 	}
-	if len(parsed) < ds.FieldCount() {
-		return nil, fmt.Errorf("row length (%v) is less than metadata fields (%v)", len(parsed), fieldCount)
+	if record.Length() > ds.FieldCount() {
+		return fmt.Errorf(record.Log("row length (%v) is greater than metadata fields (%v)", record.Length(), fieldCount))
 	}
-	if len(parsed) > ds.FieldCount() {
-		return nil, fmt.Errorf("row length (%v) is greater than metadata fields (%v)", len(parsed), fieldCount)
+	if record.raw {
+		record.StartUnraw()
 	}
-
-	result := make(map[string]interface{}, fieldCount)
 
 	for index, field := range ds.Fields {
-		converted, err := field.Validate(parsed[index])
+		data, err := record.TryGet(field.Name, index)
 		if err != nil {
 			errString = fmt.Sprintf("%v\n%v", errString, err)
-		} else {
-			result[field.Name] = converted
+			continue
 		}
+		converted, err := field.Validate(data)
+		if err != nil {
+			errString = fmt.Sprintf("%v\n%v", errString, err)
+			continue
+		}
+		err = record.Set(field.Name, converted)
+		if err != nil {
+			errString = fmt.Sprintf("%v\n%v", errString, err)
+			continue
+		}
+	}
+	if record.unrawing {
+		record.EndUnraw()
 	}
 
 	if errString != "" {
-		return nil, errors.New(errString)
+		return fmt.Errorf(record.Log("error validating record: %v", errString))
 	}
 
-	return result, nil
+	return nil
 }

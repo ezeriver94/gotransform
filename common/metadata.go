@@ -2,16 +2,24 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
 
+// EndOfStreamHeader indicates the header name which indicates that the streaming has ended
+const EndOfStreamHeader = "EOS"
+
+// Fields represents the set of fields of a datasource
+type Fields []Field
+
 // DataEndpoint contains information of a single entity which acts both as a source and as a data destination
 type DataEndpoint struct {
-	Driver           string  `yaml:"driver"`
-	ConnectionString string  `yaml:"connectionstring"`
-	ObjectIdentifier string  `yaml:"objectid"`
-	Fields           []Field `yaml:"fields"`
+	AccessorURL      string `yaml:"accessorURL"`
+	Driver           string `yaml:"driver"`
+	ConnectionString string `yaml:"connectionstring"`
+	ObjectIdentifier string `yaml:"objectid"`
+	Fields           Fields `yaml:"fields"`
 }
 
 // DataSource is a DataEndpoint used as a source of a transformation
@@ -25,14 +33,17 @@ type DataDestination struct {
 	TransformationName string `yaml:"transformation"`
 }
 
-// Join represents a way to join two datasources
-type Join struct {
-	To string   `yaml:"to"`
-	On []string `yaml:"on"`
-}
+// OnClause represents a single on clause comparing two fields between datasources
+type OnClause string
 
 // SelectClause contains the way to obtain a value from a datasource. format: datasource.fieldname
 type SelectClause string
+
+// Join represents a way to join two datasources
+type Join struct {
+	To string     `yaml:"to"`
+	On []OnClause `yaml:"on"`
+}
 
 // DataTransformation defines the directives to use to handle a transformation on one or multiple datasources
 type DataTransformation struct {
@@ -61,12 +72,22 @@ type FieldPadding struct {
 
 // Field represents the attributes of a field of the Metadata
 type Field struct {
-	Name         string       `yaml:"name"`
-	ExpectedType string       `yaml:"type"`
-	FixedLength  int          `yaml:"fixedlength"`
-	MaxLength    int          `yaml:"maxlength"`
-	EndCharacter string       `yaml:"endchar"`
-	Padding      FieldPadding `yaml:"padding"`
+	Name         string       `yaml:"name" json:"name"`
+	ExpectedType string       `yaml:"type" json:"type"`
+	FixedLength  int          `yaml:"fixedlength" json:"fixedlength"`
+	MaxLength    int          `yaml:"maxlength" json:"maxlength"`
+	EndCharacter string       `yaml:"endchar" json:"endchar"`
+	Padding      FieldPadding `yaml:"padding" json:"padding"`
+}
+
+// MarshalText returns the marshaled value of a field
+func (f Field) MarshalText() (text []byte, err error) {
+	return []byte(f.Name), nil
+}
+
+func (f *Field) UnmarshalText(text []byte) error {
+	f.Name = string(text)
+	return nil
 }
 
 // Extract contains primary datasources (which are fully read and cannot be related to each others) and aditional datasources (used on join clauses on transformations)
@@ -91,4 +112,59 @@ func ParseMetadata(data string) (*Metadata, error) {
 		return nil, fmt.Errorf("error deserializing metadata as yaml: %v", err)
 	}
 	return result, nil
+}
+
+// Parse returns the components of a select clause, splitting it by '.'
+func (sc SelectClause) Parse() (string, string, error) {
+	result := strings.Split(string(sc), ".")
+	if len(result) == 2 {
+		return strings.TrimSpace(result[0]), strings.TrimSpace(result[1]), nil
+	}
+	return "", "", fmt.Errorf("cannot split select clause %v", sc)
+}
+
+// Parse returns the components of an OnClause spitting it by '='
+func (oc OnClause) Parse() (SelectClause, SelectClause, error) {
+	result := strings.Split(string(oc), "=")
+	if len(result) == 2 {
+		return SelectClause(result[0]), SelectClause(result[1]), nil
+	}
+	return "", "", fmt.Errorf("cannot split on clause %v", oc)
+}
+
+// Find tries to find a named field inside the array
+func (f Fields) Find(name string) (Field, error) {
+
+	for _, field := range f {
+		if field.Name == name {
+			return field, nil
+		}
+	}
+	var result Field
+	return result, fmt.Errorf("field %v not found", name)
+}
+
+// MaxLength calculates the max length of a single record by iterating the field array
+func (f Fields) MaxLength() int {
+	result := 0
+	for _, f := range f {
+		if f.MaxLength > 0 {
+			result += f.MaxLength
+		} else {
+			result += f.FixedLength
+		}
+
+	}
+	return result
+}
+
+// MinLength calculates the min length of a single record by iterating the field array
+func (f Fields) MinLength() int {
+	result := 0
+	for _, f := range f {
+		if f.FixedLength > 0 {
+			result += f.FixedLength
+		}
+	}
+	return result
 }

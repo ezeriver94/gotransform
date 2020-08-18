@@ -2,7 +2,8 @@ package rabbit
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/streadway/amqp"
 )
@@ -11,7 +12,7 @@ import (
 func NewConnection(host, user, pass string, port int, vhost string) (*amqp.Connection, error) {
 
 	amqpURI := fmt.Sprintf("amqp://%v:%v@%v:%v/%v", user, pass, host, port, vhost)
-	log.Printf("dialing %q", amqpURI)
+	log.Infof("dialing %q", amqpURI)
 	connection, err := amqp.Dial(amqpURI)
 
 	if err != nil {
@@ -21,12 +22,19 @@ func NewConnection(host, user, pass string, port int, vhost string) (*amqp.Conne
 	return connection, nil
 }
 
-// func (conn *amqp.Connection) NewChannel(*amqp.Channel, error) {
-// 	log.Printf("got Connection, getting Channel")
-// 	channel, err := conn.Channel()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("Channel: %s", err)
-// 	}
-
-// 	return channel, nil
-// }
+// DeclareExchange creates an Exchange
+func DeclareExchange(channel *amqp.Channel, exchange, exchangeType string) error {
+	log.Infof("got Channel, declaring %q Exchange (%q)", exchangeType, exchange)
+	if err := channel.ExchangeDeclare(
+		exchange,     // name
+		exchangeType, // type
+		true,         // durable
+		false,        // auto-deleted
+		false,        // internal
+		false,        // noWait
+		nil,          // arguments
+	); err != nil {
+		return fmt.Errorf("Exchange Declare: %s", err)
+	}
+	return nil
+}

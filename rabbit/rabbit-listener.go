@@ -2,7 +2,8 @@ package rabbit
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/streadway/amqp"
 )
@@ -11,25 +12,27 @@ import (
 type Consumer struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
+	queue   string
 	tag     string
-	done    chan error
+	Done    chan error
 }
 
 // Handle is a function that keeps listening for messages in a rabbit mq excahnge and performs and action
-type Handle func(deliveries <-chan amqp.Delivery, done chan error)
+type Handle func(deliveries <-chan amqp.Delivery)
 
 // NewConsumer creates a rabbitmq consumer
-func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string, handle Handle) (*Consumer, error) {
+func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, exchangeType, queueName, key, ctag string) (*Consumer, error) {
 	c := &Consumer{
 		conn:    connection,
 		channel: channel,
 		tag:     ctag,
-		done:    make(chan error),
+		queue:   queueName,
+		Done:    make(chan error),
 	}
 
 	var err error
 
-	log.Printf("got Channel, declaring Exchange (%q)", exchange)
+	log.Infof("got Channel, declaring Exchange (%q)", exchange)
 	if err = c.channel.ExchangeDeclare(
 		exchange,     // name of the exchange
 		exchangeType, // type
@@ -42,7 +45,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Exchange Declare: %s", err)
 	}
 
-	log.Printf("declared Exchange, declaring Queue %q", queueName)
+	log.Infof("declared Exchange, declaring Queue %q", queueName)
 	queue, err := c.channel.QueueDeclare(
 		queueName, // name of the queue
 		true,      // durable
@@ -55,7 +58,7 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Queue Declare: %s", err)
 	}
 
-	log.Printf("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
+	log.Infof("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
 		queue.Name, queue.Messages, queue.Consumers, key)
 
 	if err = c.channel.QueueBind(
@@ -68,23 +71,39 @@ func NewConsumer(connection *amqp.Connection, channel *amqp.Channel, exchange, e
 		return nil, fmt.Errorf("Queue Bind: %s", err)
 	}
 
-	log.Printf("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
+	return c, nil
+}
+
+// Consume starts listening for messages in a consumer by the execution of the handle function
+func (c *Consumer) Consume(handle Handle) error {
+	log.Infof("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
 	deliveries, err := c.channel.Consume(
-		queue.Name, // name
-		c.tag,      // consumerTag,
-		false,      // noAck
-		false,      // exclusive
-		false,      // noLocal
-		false,      // noWait
-		nil,        // arguments
+		c.queue, // name
+		c.tag,   // consumerTag,
+		false,   // noAck
+		false,   // exclusive
+		false,   // noLocal
+		false,   // noWait
+		nil,     // arguments
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Queue Consume: %s", err)
+		return fmt.Errorf("Queue Consume: %s", err)
 	}
-
-	go handle(deliveries, c.done)
-
-	return c, nil
+	rabbitCloseError := make(chan *amqp.Error)
+	c.conn.NotifyClose(rabbitCloseError)
+	handled := false
+	for {
+		select {
+		case rabbitErr := <-rabbitCloseError:
+			return rabbitErr
+		default:
+			if handled {
+				return nil
+			}
+			handled = true
+			handle(deliveries)
+		}
+	}
 }
 
 // Shutdown closes a consumer connection
@@ -98,8 +117,8 @@ func (c *Consumer) Shutdown() error {
 		return fmt.Errorf("AMQP connection close error: %s", err)
 	}
 
-	defer log.Printf("AMQP shutdown OK")
+	defer log.Infof("AMQP shutdown OK")
 
 	// wait for handle() to exit
-	return <-c.done
+	return <-c.Done
 }
