@@ -14,7 +14,7 @@ require (
 	github.com/streadway/amqp v1.0.0
 	github.com/vmihailenco/msgpack/v5 v5.0.0-beta.1 // indirect
 	go.opentelemetry.io/otel v0.8.0 // indirect
-	golang.org/x/net v0.0.0-20200707034311-ab3426394381 // indirect
+	golang.org/x/net v0.0.0-20200813134508-3edf25e44fcc // indirect
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208 // indirect
 	golang.org/x/text v0.3.3 // indirect
 	google.golang.org/genproto v0.0.0-20200711021454-869866162049 // indirect
