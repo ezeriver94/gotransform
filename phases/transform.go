@@ -59,11 +59,11 @@ func (t *Transformer) join(
 	accessor, ok := t.accessors[targetJoinName]
 	var err error
 	if !ok {
+		t.sync.Lock()
 		accessor = data.NewDataAccessor(targetJoin.AccessorURL, targetJoinName)
 		if err != nil {
 			return &result, fmt.Errorf("error building dataProvider for %v: %v", targetJoin.Driver, err)
 		}
-		t.sync.Lock()
 		if _, ok := t.accessors[dataSourceName]; !ok {
 			t.accessors[dataSourceName] = accessor
 		}
