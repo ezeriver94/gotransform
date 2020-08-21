@@ -27,7 +27,12 @@ func NewDataAccessor(url, id string) DataAccessor {
 	}
 }
 func (da *DataAccessor) Save(r common.Record) error {
-	u := url.URL{Scheme: "http", Host: *da.Url, Path: "/save"}
+	u, err := url.Parse(*da.Url)
+	if err != nil {
+		return fmt.Errorf("error parsing url %v: %v", *da.Url, err)
+	}
+	u.Scheme = "http"
+	u.Path += "/save"
 
 	jsonBody, err := json.Marshal(r)
 	if err != nil {
@@ -48,7 +53,12 @@ func (da *DataAccessor) Save(r common.Record) error {
 	return nil
 }
 func (da *DataAccessor) Fetch(r Request) (*common.Record, error) {
-	u := url.URL{Scheme: "http", Host: *da.Url, Path: "/fetch"}
+	u, err := url.Parse(*da.Url)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing url %v: %v", *da.Url, err)
+	}
+	u.Scheme = "http"
+	u.Path += "/fetch"
 
 	jsonBody, err := json.Marshal(r)
 	if err != nil {
@@ -88,7 +98,13 @@ func (da *DataAccessor) Fetch(r Request) (*common.Record, error) {
 }
 
 func (da *DataAccessor) Stream(buffer chan<- common.Record, r Request) error {
-	u := url.URL{Scheme: "ws", Host: *da.Url, Path: "/stream"}
+	u, err := url.Parse(*da.Url)
+	if err != nil {
+		return fmt.Errorf("error parsing url %v: %v", *da.Url, err)
+	}
+	u.Scheme = "ws"
+	u.Path += "/stream"
+
 	jsonBody, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("error serializing request %v: %v", r, err)
