@@ -61,7 +61,8 @@ func (t *Transformer) join(
 	if !ok {
 		t.sync.Lock()
 		// Re-check to handle accessor added after the check and before the lock
-		if _, ok := t.accessors[targetJoinName]; !ok {
+		accessor, ok := t.accessors[targetJoinName]
+		if !ok {
 			accessor = data.NewDataAccessor(targetJoin.AccessorURL, targetJoinName)
 			if err != nil {
 				return &result, fmt.Errorf("error building dataProvider for %v: %v", targetJoin.Driver, err)
@@ -70,6 +71,7 @@ func (t *Transformer) join(
 				t.accessors[dataSourceName] = accessor
 			}
 		}
+
 		t.sync.Unlock()
 	}
 	filters := make(map[string]interface{})
