@@ -61,7 +61,7 @@ func (t *Transformer) join(
 	if !ok {
 		t.sync.Lock()
 		// Re-check to handle accessor added after the check and before the lock
-		accessor, ok := t.accessors[targetJoinName]
+		accessor, ok = t.accessors[targetJoinName]
 		if !ok {
 			accessor = data.NewDataAccessor(targetJoin.AccessorURL, targetJoinName)
 			if err != nil {
