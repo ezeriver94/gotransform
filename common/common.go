@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/beevik/guid"
+	"github.com/google/uuid"
 )
 
 // Record represents a single row, with an ID to track it through every phase
 type Record struct {
 	data     map[string]interface{}
 	rawData  []interface{}
-	ID       *guid.Guid
+	ID       uuid.UUID
 	Empty    bool
 	raw      bool
 	unrawing bool
@@ -23,12 +23,12 @@ type Record struct {
 // ErrMissingItemOnRecord indicates that a key was not found on record values
 var ErrMissingItemOnRecord = errors.New("missing item on record")
 
-// NewRecord creates an empty record with a new GUID
+// NewRecord creates an empty record with a new UUID
 func NewRecord(raw bool) Record {
 	return Record{
 		data:    nil,
 		rawData: nil,
-		ID:      guid.New(),
+		ID:      uuid.New(),
 		raw:     raw,
 		Empty:   true,
 	}
@@ -50,12 +50,12 @@ func (r *Record) EndUnraw() {
 // MarshalJSON serializes a record to json
 func (r Record) MarshalJSON() ([]byte, error) {
 	buffer := bytes.NewBufferString("{")
-	buffer.WriteString("\"guid\" :")
-	guidData, err := json.Marshal(r.ID.String())
+	buffer.WriteString("\"uuid\" :")
+	uuidData, err := json.Marshal(r.ID.String())
 	if err != nil {
 		return nil, err
 	}
-	buffer.Write(guidData)
+	buffer.Write(uuidData)
 	buffer.WriteString(",")
 	rawData, err := json.Marshal(r.raw)
 	if err != nil {
@@ -87,7 +87,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON serializes a record to json
 func (r *Record) UnmarshalJSON(b []byte) error {
 	type PlainData struct {
-		Guid string `json:"guid"`
+		UUID string `json:"uuid"`
 		Raw  bool   `json:"raw"`
 	}
 	var plainData PlainData
@@ -96,7 +96,7 @@ func (r *Record) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	r.raw = plainData.Raw
-	r.ID, err = guid.ParseString(plainData.Guid)
+	r.ID, err = uuid.Parse(plainData.UUID)
 	if err != nil {
 		return err
 	}
@@ -257,9 +257,9 @@ func (r *Record) PopulateFromJSON(data string) error {
 	return nil
 }
 
-// Log returns a string with a message concatenated to the GUID of the record
+// Log returns a string with a message concatenated to the UUID of the record
 func (r *Record) Log(message string, args ...interface{}) string {
-	return fmt.Sprintf("GUID: %v | %v", r.ID.String(), fmt.Sprintf(message, args...))
+	return fmt.Sprintf("UUID: %v | %v", r.ID.String(), fmt.Sprintf(message, args...))
 }
 
 // TryGet receives two arguments to use as a key for Get method, and uses the correct one according to the raw field
