@@ -65,13 +65,14 @@ func Get(key string, out interface{}, def interface{}, convertWith func(string) 
 			val.Elem().Set(test.Convert(val.Elem().Type()))
 			return nil
 		}
-		defVal := reflect.ValueOf(def)
-		if !defVal.IsNil() {
-			if defVal.Elem().Type() != val.Elem().Type() {
-				panic("out and def types dont match")
-			}
-			val.Elem().Set(defVal)
-		}
 	}
+	defVal := reflect.ValueOf(def)
+	if !defVal.IsNil() {
+		if defVal.Elem().Type() != val.Elem().Type() {
+			panic("out and def types dont match")
+		}
+		val.Elem().Set(defVal)
+	}
+
 	return nil
 }
